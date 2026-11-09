@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#0c111c" />
+  <title>Character Web • Prototype 0.1.1</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div id="app" class="app-shell">
+    <header class="topbar">
+      <div class="brand" title="Character Web 0.1.1">
+        <span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
+        <div class="brand-text"><strong>Character Web</strong><small>PROTOTYPE 0.1.1</small></div>
+      </div>
+      <span class="header-rule" aria-hidden="true"></span>
+      <div class="project-name-wrap">
+        <span class="eyebrow">CURRENT WORLD</span>
+        <button id="rename-project" class="project-name-button" title="Rename this world"><span id="project-name">Untitled world</span><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m15 5 4 4M4 20l4.5-.8L19 8.8a2.8 2.8 0 0 0-4-4L4.8 15.2 4 20Z"/></svg></button>
+      </div>
+      <div class="header-spacer"></div>
+      <div id="save-status" class="save-status" aria-live="polite"><span class="status-light"></span><span>Preparing local project</span></div>
+      <button id="workspace-menu-button" class="icon-button menu-button" aria-label="Project menu" title="Project menu" aria-expanded="false">☰</button>
+      <div id="workspace-menu" class="workspace-menu hidden" role="menu" aria-label="Project menu">
+        <div class="menu-heading">Project</div>
+        <button data-action="export" role="menuitem">↓ Export backup (.json)</button>
+        <button data-action="import" role="menuitem">↑ Import project…</button>
+        <button data-action="new-project" role="menuitem">＋ New blank world…</button>
+        <div class="menu-divider"></div>
+        <button data-action="help" role="menuitem">? Help & shortcuts</button>
+        <button data-action="about" role="menuitem">ⓘ About this build</button>
+      </div>
+    </header>
+
+    <div class="workspace">
+      <main class="graph-column" aria-label="Interactive character network">
+        <div class="graph-toolbar">
+          <div class="search-wrap">
+            <svg class="search-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.8" cy="10.8" r="6.8"/><path d="m16 16 5 5"/></svg>
+            <input id="character-search" type="search" placeholder="Find anyone in this world…" autocomplete="off" aria-label="Find character" />
+            <kbd>/</kbd>
+            <div id="search-results" class="search-results hidden" role="listbox"></div>
+          </div>
+          <button id="add-character" class="primary-button"><span aria-hidden="true">＋</span><span>New character</span></button>
+        </div>
+        <section id="network-viewport" class="network-viewport" aria-label="Relationship map" tabindex="0">
+          <div class="canvas-grid" aria-hidden="true"></div>
+          <div id="graph-scene" class="graph-scene">
+            <svg id="edge-layer" class="edge-layer" aria-label="Relationships"></svg>
+            <div id="node-layer" class="node-layer"></div>
+          </div>
+          <div class="canvas-label"><span class="live-dot"></span><span id="canvas-label">THE LIVING WEB</span></div>
+          <div id="empty-network" class="empty-network hidden">
+            <div class="empty-symbol">✳</div>
+            <h2>Your world starts with one name.</h2>
+            <p>Add a character and watch the connections grow.</p>
+            <button id="empty-add" class="primary-button">＋ Add your first character</button>
+          </div>
+          <div class="canvas-controls" aria-label="Map controls">
+            <button id="zoom-in" class="canvas-control" title="Zoom in" aria-label="Zoom in">＋</button>
+            <button id="zoom-out" class="canvas-control" title="Zoom out" aria-label="Zoom out">−</button>
+            <button id="fit-map" class="canvas-control" title="Fit visible characters" aria-label="Fit visible characters">⤢</button>
+          </div>
+          <div class="canvas-hint" id="canvas-hint">Click a name to explore · Drag to pan · Scroll to zoom</div>
+        </section>
+        <footer class="bottom-toolbar">
+          <div class="view-controls">
+            <span class="toolbar-label">SHOW</span>
+            <div class="segmented" role="group" aria-label="Connection depth">
+              <button data-depth="1" class="active">1 step</button>
+              <button data-depth="2">2 steps</button>
+              <button data-depth="all">Everyone</button>
+            </div>
+            <span class="toolbar-divider"></span>
+            <label class="compact-toggle"><input id="names-only" type="checkbox" /><span class="toggle-track"></span><span>Names only</span></label>
+          </div>
+          <div class="bottom-right">
+            <span id="roster-count" class="roster-count">0 people · 0 connections</span>
+            <button id="undo-button" class="subtle-icon-button" aria-label="Undo" title="Undo (Ctrl/⌘ Z)" disabled>↶</button>
+            <button id="redo-button" class="subtle-icon-button" aria-label="Redo" title="Redo (Ctrl/⌘ Shift Z)" disabled>↷</button>
+          </div>
+        </footer>
+      </main>
+      <aside id="detail-pane" class="detail-pane" aria-label="Selected character or relationship details">
+        <button id="mobile-panel-toggle" class="mobile-panel-toggle" aria-expanded="false" title="Expand character details">⌃ <span>Expand details</span></button>
+        <div id="detail-content" class="detail-content"></div>
+      </aside>
+    </div>
+  </div>
+
+  <div id="modal-backdrop" class="modal-backdrop hidden" role="presentation">
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+      <div class="modal-top"><div><div id="modal-eyebrow" class="eyebrow">WORLD EDITOR</div><h2 id="modal-title">New character</h2></div><button id="modal-close" class="icon-button" title="Close" aria-label="Close">×</button></div>
+      <form id="modal-form"><div id="modal-fields"></div><div class="modal-actions"><button type="button" id="modal-cancel" class="secondary-button">Cancel</button><button type="submit" id="modal-submit" class="primary-button">Create character</button></div></form>
+    </div>
+  </div>
+  <div id="toast-container" class="toast-container" role="status" aria-live="polite"></div>
+  <input type="file" id="import-file" class="visually-hidden" accept=".json,application/json" />
+  <input type="file" id="portrait-file" class="visually-hidden" accept="image/*" />
+  <script defer src="app.js"></script>
+</body>
+</html>
