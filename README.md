@@ -1,36 +1,40 @@
-# Character Web 0.1.1 (public-clean edition)
+# Character Web 0.1.2
 
-An offline-first, locally saved character-relationship explorer. This edition contains **no sample character data, relationships, portraits, or fictional-world references**. A first-time visitor starts with an empty world.
+Character Web is an offline-capable, local-first character relationship explorer. **Public releases contain no character data, portraits, or fictional-universe examples.** New visitors start with an empty world.
 
-## Deploy on GitHub Pages
+## Update your GitHub Pages site
 
-1. Make a **new public repository** (for example, `character-web`).
-2. Upload the files in this directory into the **repository root**, not a subfolder: `index.html`, `app.js`, `styles.css`, `.nojekyll`, `README.md` and `CHANGELOG.md`.
-3. Open **Settings → Pages**; set **Deploy from a branch**, select `main` and `/(root)`, then save.
-4. Open the published address after deployment. You should see **0 people · 0 relationships** and an **Add your first character** action.
+1. **Export your current private project JSON first** using **☰ → Export backup (.json)**. Keep a copy outside your browser.
+2. Open your existing `character-web` GitHub repository, choose **Add file → Upload files**, and upload the contents of this ZIP into the repository **root**. Replace the existing files when prompted, then commit the changes. You do not need a new repository.
+3. Once GitHub Pages deploys the update, refresh the published page. If you still see the old version, try Ctrl+Shift+R or an incognito tab to check the version label.
+4. Your browser-local project should still be there on the same Pages URL. If it isn't, choose **☰ → Import project…** and select your private JSON backup. Import **replaces** the current browser-local world, with confirmation first.
 
-## Working with a private project
+The repository files should be `index.html`, `app.js`, `styles.css`, `.nojekyll`, `README.md`, and `CHANGELOG.md`. **Do not upload your private project JSON to the public repository.**
 
-Select **☰ → Import project…** and open your Character Web JSON backup. The existing v0.1 schema is supported. The import replaces the current *browser-local* project only, with a confirmation first.
+## New in 0.1.2
 
-**Do not upload your creative-project JSON backups to the GitHub repository** unless you deliberately intend to publish them. The repository and Pages files are public. The app saves imported data in your own browser (IndexedDB, with localStorage fallback) and does not send it to GitHub. Export backups regularly.
+- **Shift-click to connect:** with character A centered, hold **Shift** and click a visible character B. The Connect Characters editor opens with B selected. Normal click still centers a character. Works on portrait and name-only nodes. On touch devices, use the profile panel's **＋ Connect** button.
+- **Clear relationship entry:** the relationship type field starts empty, with *Connection* used if left blank. Click a suggested relationship type or type your own. Suggestions include common types and types already used in your project.
+- **Safer dialogs:** clicking outside the dialog no longer discards what you've typed. Use **Cancel**, **×**, or **Esc** to close.
+- **Three direction choices:** mutual/undirected, first person → second, or second person → first. The selector spells out their names and updates when you choose a different recipient.
+- **Directional arrows on the web:** one-way relationships show an arrow pointing toward the recipient. If two characters have several relationship records with different directions, those are represented by up to three subtly separated strands (mutual, A→B, B→A), rather than one ambiguous line.
+- **Existing projects retained:** the `schemaVersion: 1` data format remains compatible. Existing `forward` relationships and all portraits, aliases, groups, and notes import without conversion. New relationships may also store `direction: "reverse"`.
 
-If you reuse the **same** GitHub Pages URL after deleting and recreating a repository, that browser's old local data may still load because browser storage is tied to the website origin, not the repository. This is expected. To confirm what *new* visitors see, test in a private/incognito window or a different browser. Do not clear browser site data without exporting your backup first.
+## Existing features
 
-## Use without GitHub
+- Create, edit, duplicate, and delete characters; optional portraits; name-only view
+- Create and edit multiple relationships with descriptions and notes
+- Recenter, drag, pan, zoom, search, connection-depth controls, undo/redo
+- Private browser autosave and portable JSON import/export
 
-Open `index.html` locally. For most browsers this works without any install; for reliable persistent storage, using GitHub Pages or another HTTPS static host is recommended.
+## Storage and privacy
 
-## What's included
+The site is a static web app. GitHub Pages hosts the *code*, not your project database. Project data stays in that browser profile's IndexedDB (with a localStorage fallback) unless you export or deliberately publish it. Different browsers/devices do not automatically synchronize projects. Keep regular backups, especially before clearing site storage or changing your Pages URL.
 
-- Interactive navigable character network and connection-depth controls
-- Character and relationship editing, optional portraits, aliases, groups, duplication
-- Search, zoom, panning, undo/redo, JSON import/export and browser-local autosave
-- Empty state for a blank new project
+An empty browser or incognito window starts with an empty world; your normal browser may load saved local data. This is expected.
 
-## Privacy and limitations
+This remains an alpha prototype, not a user-account or secure publishing system. Sharing an exported JSON file reveals all data in that file, including private notes and portraits.
 
-- This is a prototype, not a secure user-account system or a public/private publishing feature.
-- Files on a public GitHub repository, including old commit history, can be publicly visible. Deleting a repository removes its ordinary history from GitHub's repository pages, but cannot guarantee removal of external caches, copies or forks.
-- The stored project is local to the browser profile, not automatically synced across devices.
-- The older sample project should be restored by importing your private backup, **not** by reintroducing it into public source code.
+## Next phase
+
+Smart clickable group/faction tags and a Group Spotlight view are being developed separately; they are **not included in 0.1.2**.

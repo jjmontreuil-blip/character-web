@@ -1,4 +1,4 @@
-/* Character Web 0.1.1. Offline, local-first, dependency-free prototype. */
+/* Character Web 0.1.2. Offline, local-first, dependency-free prototype. */
 (() => {
 'use strict';
 const $ = id => document.getElementById(id);
@@ -84,7 +84,7 @@ function validateImported(raw){
   const relationshipIds=new Set();
   const relationships=raw.relationships.filter(r=>r&&ids.has(r.source)&&ids.has(r.target)&&r.source!==r.target).map(r=>{
     let id=typeof r.id==='string'&&r.id?r.id:uid();if(relationshipIds.has(id))id=uid();relationshipIds.add(id);
-    return {id,source:r.source,target:r.target,type:String(r.type||'Connection').slice(0,150),description:String(r.description||'').slice(0,150000),direction:r.direction==='forward'?'forward':'mutual',notes:String(r.notes||'').slice(0,150000),visibility:r.visibility==='public'?'public':'author'};
+    return {id,source:r.source,target:r.target,type:String(r.type||'Connection').slice(0,150),description:String(r.description||'').slice(0,150000),direction:['forward','reverse'].includes(r.direction)?r.direction:'mutual',notes:String(r.notes||'').slice(0,150000),visibility:r.visibility==='public'?'public':'author'};
   });
   return {schemaVersion:1,id:String(raw.id||uid()),name:String(raw.name||'Untitled world').slice(0,180),description:String(raw.description||''),createdAt:raw.createdAt||new Date().toISOString(),updatedAt:raw.updatedAt||new Date().toISOString(),characters,relationships,settings:{depth:['1','2','all'].includes(String(raw.settings?.depth))?String(raw.settings.depth):'1',namesOnly:!!raw.settings?.namesOnly}};
 }
@@ -136,21 +136,40 @@ function recalcScene(){
   renderGraphNodes();renderGraphEdges();layoutActivity=0;startLayout();
 }
 function makeSvg(type,attrs){const e=document.createElementNS(NS,type);for(const [key,value] of Object.entries(attrs||{}))e.setAttribute(key,String(value));return e;}
+// Keep a single connection strand per *direction*, not one per relationship record.
+// This preserves readable maps while allowing mutual, A→B, and B→A to coexist.
 function groupsForVisibleEdges(){
-  const available=new Set(visibleIds);const groups=new Map();
-  for(const rel of project.relationships){if(!available.has(rel.source)||!available.has(rel.target))continue;const key=[rel.source,rel.target].sort().join('|');if(!groups.has(key))groups.set(key,[]);groups.get(key).push(rel);}
-  return [...groups.entries()].map(([key,rels])=>({key,source:rels[0].source,target:rels[0].target,rels}));
+  const available=new Set(visibleIds),pairs=new Map();
+  for(const rel of project.relationships){
+    if(!available.has(rel.source)||!available.has(rel.target))continue;
+    const ids=[rel.source,rel.target].sort(),pairKey=ids.join('|');
+    if(!pairs.has(pairKey))pairs.set(pairKey,{key:pairKey,source:ids[0],target:ids[1],tracks:new Map()});
+    const pair=pairs.get(pairKey);
+    const from=rel.direction==='reverse'?rel.target:rel.source;
+    const to=rel.direction==='reverse'?rel.source:rel.target;
+    const trackKey=rel.direction==='mutual'?'mutual':`${from}>${to}`;
+    if(!pair.tracks.has(trackKey))pair.tracks.set(trackKey,{key:trackKey,from:rel.direction==='mutual'?null:from,to:rel.direction==='mutual'?null:to,rels:[]});
+    pair.tracks.get(trackKey).rels.push(rel);
+  }
+  return [...pairs.values()].map(pair=>({...pair,tracks:[...pair.tracks.values()]}));
 }
 function renderGraphEdges(){
   edgesLayer.replaceChildren();edgeElements=[];
   for(const item of groupsForVisibleEdges()){
-    const selected=item.rels.some(r=>selection?.kind==='relationship'&&selection.id===r.id);
-    const group=makeSvg('g',{'class':'edge-group','data-group':item.key});
-    const line=makeSvg('line',{'class':'edge-line'+(selected?' selected':'')+(item.source===focusId||item.target===focusId?' near':'')});line.style.stroke=tone(item.rels[0].type);
-    const hit=makeSvg('line',{'class':'edge-hit','stroke':'transparent'});
-    group.append(line,hit);const title=makeSvg('title');title.textContent=item.rels.map(r=>r.type).join(' · ');group.append(title);edgesLayer.append(group);
-    hit.addEventListener('click',ev=>{ev.stopPropagation();if(pointer?.moved)return;selection={kind:'relationship',id:item.rels[0].id};renderPanel();renderGraphEdges();});
-    edgeElements.push({item,line,hit});
+    item.tracks.forEach((track,index)=>{
+      const selected=track.rels.some(r=>selection?.kind==='relationship'&&selection.id===r.id);
+      const group=makeSvg('g',{'class':'edge-group','data-group':item.key});
+      const line=makeSvg('line',{'class':'edge-line'+(selected?' selected':'')+(item.source===focusId||item.target===focusId?' near':'')});
+      line.style.stroke=tone(track.rels[0].type);
+      const hit=makeSvg('line',{'class':'edge-hit','stroke':'transparent'});
+      const arrow=track.to?makeSvg('polygon',{'class':'edge-arrow'+(selected?' selected':'')}):null;
+      if(arrow)arrow.style.fill=tone(track.rels[0].type);
+      group.append(line,hit);if(arrow)group.append(arrow);
+      const title=makeSvg('title');title.textContent=track.rels.map(r=>r.type).join(' · ')+(track.from?` (${roster(track.from)?.name} → ${roster(track.to)?.name})`:' (mutual)');group.append(title);
+      edgesLayer.append(group);
+      hit.addEventListener('click',ev=>{ev.stopPropagation();if(pointer?.moved)return;selection={kind:'relationship',id:track.rels[0].id};renderPanel();renderGraphEdges();});
+      edgeElements.push({item,track,index,trackCount:item.tracks.length,line,hit,arrow});
+    });
   }
   updatePositions();
 }
@@ -168,8 +187,25 @@ function renderGraphNodes(){
 }
 function updatePositions(){
   for(const [id,el] of nodeElements){const p=positions.get(id);if(!p)continue;el.style.left=`${p.x}px`;el.style.top=`${p.y}px`;}
-  for(const {item,line,hit} of edgeElements){const a=positions.get(item.source),b=positions.get(item.target);if(!a||!b)continue;
-    for(const e of [line,hit]){e.setAttribute('x1',a.x);e.setAttribute('y1',a.y);e.setAttribute('x2',b.x);e.setAttribute('y2',b.y);}
+  for(const {item,track,index,trackCount,line,hit,arrow} of edgeElements){
+    const a=positions.get(item.source),b=positions.get(item.target);if(!a||!b)continue;
+    const dx=b.x-a.x,dy=b.y-a.y,distance=Math.hypot(dx,dy)||1;
+    const offset=(index-(trackCount-1)/2)*9;
+    const ox=-dy/distance*offset,oy=dx/distance*offset;
+    for(const e of [line,hit]){
+      e.setAttribute('x1',a.x+ox);e.setAttribute('y1',a.y+oy);
+      e.setAttribute('x2',b.x+ox);e.setAttribute('y2',b.y+oy);
+    }
+    if(arrow){
+      const end=track.to===item.target?b:a;
+      const start=track.to===item.target?a:b;
+      const ux=(end.x-start.x)/distance,uy=(end.y-start.y)/distance;
+      // Set the tip just outside the character node rather than under its label.
+      const inset=Math.min(64,Math.max(21,distance*.23));
+      const tx=end.x-ux*inset+ox,ty=end.y-uy*inset+oy;
+      const bx=tx-ux*14,by=ty-uy*14;
+      arrow.setAttribute('points',`${tx},${ty} ${bx-uy*6},${by+ux*6} ${bx+uy*6},${by-ux*6}`);
+    }
   }
 }
 function startLayout(){if(raf)return;raf=requestAnimationFrame(layoutFrame);}
@@ -215,7 +251,7 @@ function updateUndoButtons(){$('undo-button').disabled=!undoStack.length;$('redo
 
 // GRAPH INTERACTIONS
 function startNodeDrag(ev){if(ev.button!==0)return;ev.stopPropagation();ev.preventDefault();const id=ev.currentTarget.dataset.nodeId;
-  pointer={mode:'node',id,startX:ev.clientX,startY:ev.clientY,lastX:ev.clientX,lastY:ev.clientY,moved:false};ev.currentTarget.classList.add('is-dragging');
+  pointer={mode:'node',id,shift:ev.shiftKey,startX:ev.clientX,startY:ev.clientY,lastX:ev.clientX,lastY:ev.clientY,moved:false};ev.currentTarget.classList.add('is-dragging');
 }
 viewport.addEventListener('pointerdown',ev=>{
   if(ev.button!==0||ev.target.closest('.network-node')||ev.target.closest('.canvas-controls'))return;
@@ -236,7 +272,11 @@ window.addEventListener('pointermove',ev=>{
 window.addEventListener('pointerup',ev=>{
   if(!pointer)return;const p=pointer;pointer=null;
   document.querySelectorAll('.network-node.is-dragging').forEach(el=>el.classList.remove('is-dragging'));
-  if(p.mode==='node'&&!p.moved)selectCharacter(p.id);
+  if(p.mode==='node'&&!p.moved){
+    if((p.shift||ev.shiftKey)&&focusId&&focusId!==p.id&&$('modal-backdrop').classList.contains('hidden')){
+      openModal('new-relationship',{source:focusId,target:p.id});
+    }else selectCharacter(p.id);
+  }
   else if(p.mode==='node'){const pos=positions.get(p.id);if(pos){targetPositions.set(p.id,{x:pos.x,y:pos.y});startLayout();}}
 });
 window.addEventListener('pointercancel',()=>{pointer=null;document.querySelectorAll('.network-node.is-dragging').forEach(el=>el.classList.remove('is-dragging'));});
@@ -259,9 +299,9 @@ function renderPanel(){
     const rel=edgeById(selection.id);if(!rel){selection=null;return renderPanel();}
     const a=roster(rel.source),b=roster(rel.target);
     pane.innerHTML=`<div class="detail-header-row"><span class="panel-section-title">CONNECTION DETAILS</span><button class="panel-action" data-panel-action="back">← Character</button></div>
-      <div class="relationship-top"><button class="relationship-avatar" data-panel-action="focus" data-id="${esc(a.id)}">${esc(a.name)}</button><div class="relationship-icon">↔</div><button class="relationship-avatar" data-panel-action="focus" data-id="${esc(b.id)}">${esc(b.name)}</button></div>
+      <div class="relationship-top"><button class="relationship-avatar" data-panel-action="focus" data-id="${esc(a.id)}">${esc(a.name)}</button><div class="relationship-icon">${rel.direction==='forward'?'→':rel.direction==='reverse'?'←':'↔'}</div><button class="relationship-avatar" data-panel-action="focus" data-id="${esc(b.id)}">${esc(b.name)}</button></div>
       ${lineField('Relationship label','type',rel.type,{placeholder:'Friends, rivals, co-workers…'})}
-      <div class="field-group"><label class="field-label" for="field-direction">DIRECTION</label><select id="field-direction" data-field="direction" class="field-input"><option value="mutual" ${rel.direction==='mutual'?'selected':''}>Mutual / undirected</option><option value="forward" ${rel.direction==='forward'?'selected':''}>${esc(a.name)} → ${esc(b.name)}</option></select><p class="field-help">The connection remains navigable from either character.</p></div>
+      <div class="field-group"><label class="field-label" for="field-direction">DIRECTION</label><select id="field-direction" data-field="direction" class="field-input"><option value="mutual" ${rel.direction==='mutual'?'selected':''}>Mutual / undirected</option><option value="forward" ${rel.direction==='forward'?'selected':''}>${esc(a.name)} → ${esc(b.name)}</option><option value="reverse" ${rel.direction==='reverse'?'selected':''}>${esc(b.name)} → ${esc(a.name)}</option></select><p class="field-help">The connection remains navigable from either character.</p></div>
       ${lineField('Their history','description',rel.description,{multiline:true,large:true,placeholder:'What connects these people?'})}
       ${lineField('Private working notes','notes',rel.notes,{multiline:true,rows:3,placeholder:'Unresolved threads, future developments…'})}
       <div class="panel-actions"><button class="danger-button" data-panel-action="delete-relationship">Remove relationship</button></div>
@@ -300,7 +340,9 @@ $('detail-content').addEventListener('input',ev=>{
   if(selection.kind==='character'&&field==='name'){const node=nodeElements.get(target.id);if(node){node.querySelector('.node-name').textContent=target.name;node.setAttribute('aria-label',`Explore ${target.name}`);}if(target.id===focusId)$('canvas-label').textContent=`EXPLORING ${target.name.toUpperCase()}`;}
   if(selection.kind==='relationship'&&field==='type')renderGraphEdges();
 });
-$('detail-content').addEventListener('change',ev=>{if(ev.target.dataset.field==='direction'&&selection?.kind==='relationship'){edgeById(selection.id).direction=ev.target.value;queueSave();}});
+$('detail-content').addEventListener('change',ev=>{if(ev.target.dataset.field==='direction'&&selection?.kind==='relationship'){
+  const id=selection.id,value=ev.target.value;commit(()=>{edgeById(id).direction=value;});
+}});
 $('detail-content').addEventListener('click',ev=>{
   const button=ev.target.closest('[data-panel-action]');if(!button)return;const action=button.dataset.panelAction;
   if(action==='back'){selectCharacter(focusId||project.characters[0]?.id);return;}
@@ -373,8 +415,14 @@ function openModal(kind,context={}){
   switch(kind){
     case 'new-character':set('New character',`<p class="modal-desc">One name is all you need. You can fill in the rest whenever you like.</p><label class="field-label" for="modal-name">NAME</label><input id="modal-name" name="name" class="field-input name-input" maxlength="180" required placeholder="Who’s joining the world?" autocomplete="off"/>`,'Add character');break;
     case 'new-relationship':{
-      const source=roster(context.source);const options=project.characters.filter(c=>c.id!==context.source).sort(sortByName).map(c=>`<option value="${esc(c.id)}">${esc(c.name)}</option>`).join('');
-      set('Connect characters',`<p class="modal-desc">Connect <strong>${esc(source?.name||'?')}</strong> to someone else in this world.</p><div class="field-group"><label class="field-label" for="modal-target">CONNECT TO</label><select id="modal-target" name="target" class="field-input" required>${options}</select></div><div class="field-group"><label class="field-label" for="modal-type">RELATIONSHIP</label><input id="modal-type" name="type" class="field-input" list="rel-suggestions" placeholder="Friends, enemies, siblings…" value="Connection"><datalist id="rel-suggestions"><option value="Friendship"><option value="Romance"><option value="Family"><option value="Rivalry"><option value="Mentorship"><option value="Professional"><option value="Bandmates"><option value="Community"></datalist></div><div class="field-group"><label class="field-label" for="modal-description">DETAILS (OPTIONAL)</label><textarea id="modal-description" name="description" rows="3" class="field-input" placeholder="What’s the story between them?"></textarea></div>`,'Create connection');break;
+      const source=roster(context.source);
+      const characters=project.characters.filter(c=>c.id!==context.source).sort(sortByName);
+      const options=characters.map(c=>`<option value="${esc(c.id)}" ${c.id===context.target?'selected':''}>${esc(c.name)}</option>`).join('');
+      const existing=project.relationships.filter(r=>(r.source===context.source&&r.target===context.target)||(r.target===context.source&&r.source===context.target));
+      const common=['Friendship','Romance','Family','Rivalry','Mentorship','Professional','Bandmates','Community'];
+      const suggestions=[...new Set([...common,...project.relationships.map(r=>r.type).filter(Boolean)])].slice(0,16);
+      const buttons=suggestions.map(t=>`<button type="button" class="relationship-suggestion" data-relationship-suggestion="${esc(t)}">${esc(t)}</button>`).join('');
+      set('Connect characters',`<p class="modal-desc">Connect <strong>${esc(source?.name||'?')}</strong> to someone else in this world.${existing.length?`<br><span class="existing-connection-note">These characters already have ${existing.length} recorded relationship${existing.length===1?'':'s'}. You can add another.</span>`:''}</p><div class="field-group"><label class="field-label" for="modal-target">CONNECT TO</label><select id="modal-target" name="target" class="field-input" required>${options}</select></div><div class="field-group"><label class="field-label" for="modal-type">RELATIONSHIP</label><input id="modal-type" name="type" class="field-input" placeholder="Connection (default), or type your own" autocomplete="off" maxlength="150"><div class="relationship-suggestions" aria-label="Quick relationship types">${buttons}</div></div><div class="field-group"><label class="field-label" for="modal-direction">DIRECTION</label><select id="modal-direction" name="direction" class="field-input"><option value="mutual">Mutual / undirected</option><option value="forward">Source → recipient</option><option value="reverse">Recipient → source</option></select></div><div class="field-group"><label class="field-label" for="modal-description">DETAILS (OPTIONAL)</label><textarea id="modal-description" name="description" rows="3" class="field-input" placeholder="What’s the story between them?"></textarea></div>`,'Create connection');break;
     }
     case 'rename':set('Rename world',`<label class="field-label" for="modal-name">WORLD NAME</label><input id="modal-name" name="name" class="field-input name-input" maxlength="180" required value="${esc(project.name)}"/>`,'Rename');break;
     case 'new-project':set('New blank world',`<p class="modal-desc">This replaces the current workspace. Export a backup first if you want to keep the current world.</p><label class="field-label" for="modal-name">WORLD NAME</label><input id="modal-name" name="name" class="field-input name-input" maxlength="180" required placeholder="Untitled world"/>`,'Create blank world');break;
@@ -383,11 +431,20 @@ function openModal(kind,context={}){
     case 'character-actions':{
       const c=roster(context.id);set(c?.name||'Character',`<p class="modal-desc">Quick actions for this character.</p><div class="modal-options"><button type="button" class="secondary-button" id="action-duplicate">⧉ Duplicate character</button><button type="button" class="secondary-button" id="action-connect">↗ Add connection</button><button type="button" class="secondary-button" id="action-focus">◎ Focus here</button></div>`,'Close');break;
     }
-    case 'help':set('How to explore',`<div class="modal-preview"><b>Click a character</b> to center their connections and edit their details.<br><b>Click a line</b> to inspect or edit a relationship.<br><b>Drag the background</b> to pan; <b>scroll</b> to zoom.<br><b>Double-click blank space</b> to add someone.<br><b>Drag a portrait</b> into a character profile.<br><b>Search</b> reaches everyone, even those outside the current view.<br><b>1 step / 2 steps / Everyone</b> controls the visible neighborhood.</div><p class="modal-desc"><b>Shortcuts:</b> / Search · + New character · Ctrl/⌘ Z Undo · Ctrl/⌘ Shift Z Redo.</p><p class="modal-desc">Your edits save in this browser, not on a server. Export a backup regularly, particularly before resetting your browser.</p>`,'Close','YOUR GUIDE');break;
-    case 'about':set('Character Web 0.1.1',`<p class="modal-desc">An offline-first interactive relationship encyclopedia. This first build is a proof of the network, editing, and local project workflows.</p><div class="modal-preview"><b>Included:</b> editable people and links, aliases, groups, optional portraits, search, recentering, zoom, local autosave, undo/redo, import/export.<br><b>Planned, not yet included:</b> full wiki linking, network analysis, timeline history, spoiler-safe publishing, ThreadWriter integration.</div><p class="modal-desc">This build has no external dependencies, account requirement, or network requests. New visitors begin with an empty world; projects stay in the browser unless exported.</p>`,'Close','ABOUT THIS PROTOTYPE');break;
+    case 'help':set('How to explore',`<div class="modal-preview"><b>Click a character</b> to center their connections and edit their details.<br><b>Shift-click a different visible character</b> to connect them with the currently centered one.<br><b>Click a line</b> to inspect or edit a relationship.<br><b>Drag the background</b> to pan; <b>scroll</b> to zoom.<br><b>Double-click blank space</b> to add someone.<br><b>Drag a portrait</b> into a character profile.<br><b>Search</b> reaches everyone, even those outside the current view.<br><b>1 step / 2 steps / Everyone</b> controls the visible neighborhood.</div><p class="modal-desc"><b>Shortcuts:</b> Shift-click Connect · / Search · + New character · Ctrl/⌘ Z Undo · Ctrl/⌘ Shift Z Redo.</p><p class="modal-desc">Your edits save in this browser, not on a server. Export a backup regularly, particularly before resetting your browser.</p>`,'Close','YOUR GUIDE');break;
+    case 'about':set('Character Web 0.1.2',`<p class="modal-desc">An offline-first interactive relationship encyclopedia. This first build is a proof of the network, editing, and local project workflows.</p><div class="modal-preview"><b>Included:</b> editable people and links, aliases, groups, optional portraits, search, recentering, zoom, local autosave, undo/redo, import/export.<br><b>Planned, not yet included:</b> full wiki linking, network analysis, timeline history, spoiler-safe publishing, ThreadWriter integration.</div><p class="modal-desc">This build has no external dependencies, account requirement, or network requests. New visitors begin with an empty world; projects stay in the browser unless exported.</p>`,'Close','ABOUT THIS PROTOTYPE');break;
   }
   $('modal-backdrop').classList.remove('hidden');
   if(['about','help','character-actions'].includes(kind)){$('modal-submit').textContent='Close';$('modal-cancel').classList.add('hidden');}else $('modal-cancel').classList.remove('hidden');
+  if(kind==='new-relationship'){
+    $('modal-target').addEventListener('change',updateNewRelationshipDirections);
+    updateNewRelationshipDirections();
+    $('modal-fields').onclick=ev=>{
+      const chip=ev.target.closest('[data-relationship-suggestion]');if(!chip)return;
+      $('modal-type').value=chip.dataset.relationshipSuggestion;
+      $('modal-type').focus();
+    };
+  }
   if(kind==='character-actions'){
     $('action-duplicate').addEventListener('click',()=>{closeModal();duplicateCharacter(context.id);});
     $('action-connect').addEventListener('click',()=>openModal('new-relationship',{source:context.id}));
@@ -395,9 +452,18 @@ function openModal(kind,context={}){
   }
   requestAnimationFrame(()=>{const input=$('modal-name')||$('modal-target')||$('modal-submit');input?.focus();if(kind==='rename')$('modal-name')?.select();});
 }
+function updateNewRelationshipDirections(){
+  const source=roster(modalContext.source),target=roster($('modal-target')?.value),direction=$('modal-direction');
+  if(!source||!target||!direction)return;
+  direction.querySelector('[value=forward]').textContent=`${source.name} → ${target.name}`;
+  direction.querySelector('[value=reverse]').textContent=`${target.name} → ${source.name}`;
+}
 function closeModal(){$('modal-backdrop').classList.add('hidden');modalKind=null;modalContext={};}
 $('modal-close').addEventListener('click',closeModal);$('modal-cancel').addEventListener('click',closeModal);
-$('modal-backdrop').addEventListener('click',ev=>{if(ev.target===$('modal-backdrop'))closeModal();});
+// Clicking outside an editing dialog never silently discards typed work.
+$('modal-backdrop').addEventListener('click',ev=>{if(ev.target===$('modal-backdrop')){
+  const first=$('modal-form').querySelector('input,select,textarea');first?.focus();
+}});
 $('modal-form').addEventListener('submit',ev=>{
   ev.preventDefault();const kind=modalKind,ctx=modalContext;
   try{
@@ -410,8 +476,8 @@ $('modal-form').addEventListener('submit',ev=>{
     }
     else if(kind==='new-relationship'){
       const target=$('modal-target')?.value,source=ctx.source;if(!roster(source)||!roster(target)||source===target)throw new Error('Choose two different characters.');
-      const type=$('modal-type').value.trim()||'Connection',description=$('modal-description').value.trim();const id=uid();
-      commit(()=>project.relationships.push({id,source,target,type,description,direction:'mutual',notes:'',visibility:'author'}));closeModal();selection={kind:'relationship',id};renderPanel();renderGraphEdges();toast('Connection added');
+      const type=$('modal-type').value.trim()||'Connection',description=$('modal-description').value.trim(),direction=$('modal-direction').value;const id=uid();
+      commit(()=>project.relationships.push({id,source,target,type,description,direction,notes:'',visibility:'author'}));closeModal();selection={kind:'relationship',id};renderPanel();renderGraphEdges();toast('Connection added');
     }
     else if(kind==='rename'){const name=$('modal-name').value.trim();if(!name)throw new Error('Give your world a name.');commit(()=>{project.name=name;});closeModal();}
     else if(kind==='new-project'){const name=$('modal-name').value.trim();if(!name)throw new Error('Give your world a name.');resetProject(freshProject(name));closeModal();toast('Blank world created');}

@@ -1,12 +1,21 @@
-# Changelog
+# Character Web changelog
 
-## 0.1.1 • Public-clean edition
-- Removed all bundled fictional-character data and sample relationships.
-- Removed sample-world restore command and default world name.
-- New visitors open a truly empty world.
-- Preserved v0.1 project JSON import compatibility and browser-local project persistence.
-- Flattened file layout for straightforward GitHub Pages publication.
-- Removed previews and source test fixtures that referenced the original creative project.
+## 0.1.2 · Relationship workflow update
 
-## 0.1
-- Initial character graph and local editor prototype.
+- Shift-click a visible second character to open a pretargeted connection form
+- Replaced the prefilled relationship datalist with an empty free-text field and clickable type suggestions
+- Protected unsaved modal edits from accidental outside-click dismissal
+- Added both directional choices and explicit person-to-person labels to connection creation and editing
+- Displayed arrowheads for unilateral connections, including mixed-direction multi-relationship pairs
+- Preserved v0.1 JSON compatibility and public-clean empty startup
+- Updated help, accessibility labels, and version displays
+
+## 0.1.1 · Public-clean edition
+
+- Removed bundled cast, portraits, and story examples
+- Blank project by default, with private JSON import supported
+- GitHub Pages-ready flat repository layout
+
+## 0.1 · The Living Web
+
+- First interactive graph and browser-local character encyclopedia prototype
