@@ -1,4 +1,4 @@
-/* Character Web 0.1.2. Offline, local-first, dependency-free prototype. */
+/* Character Web 0.1.3. Offline, local-first, dependency-free prototype. */
 (() => {
 'use strict';
 const $ = id => document.getElementById(id);
@@ -23,6 +23,8 @@ let modalKind=null,modalContext={};
 let visibleIds=[],visibleDistances=new Map(),targetPositions=new Map(),positions=new Map(),nodeElements=new Map(),edgeElements=[];
 let raf=null,layoutActivity=0,camera={panX:0,panY:0,scale:1};
 let pointer=null,photoTarget=null,toastTimeouts=[];
+const activeTouches=new Map();
+let touchGesture=null,suppressTouchClickUntil=0;
 const viewport=$('network-viewport'),scene=$('graph-scene'),nodesLayer=$('node-layer'),edgesLayer=$('edge-layer');
 
 // DATA + STORAGE
@@ -102,7 +104,7 @@ function undo(){endInlineEdit();if(!undoStack.length)return;redoStack.push(JSON.
 function redo(){endInlineEdit();if(!redoStack.length)return;undoStack.push(JSON.stringify(project));project=JSON.parse(redoStack.pop());ensureValidSelection();queueSave();refresh();toast('Redone');}
 function ensureValidSelection(){if(focusId&&!roster(focusId))focusId=project.characters[0]?.id||null;if(!focusId)focusId=project.characters[0]?.id||null;if(selection?.kind==='character'&&!roster(selection.id))selection=null;if(selection?.kind==='relationship'&&!edgeById(selection.id))selection=null;if(!selection&&focusId)selection={kind:'character',id:focusId};}
 function freshProject(name){return {schemaVersion:1,id:uid(),name,description:'',createdAt:new Date().toISOString(),updatedAt:new Date().toISOString(),characters:[],relationships:[],settings:{depth:'1',namesOnly:false}};}
-function resetProject(data){endInlineEdit();project=validateImported(data);undoStack=[];redoStack=[];positions.clear();camera={panX:0,panY:0,scale:window.innerWidth<=760?.69:1};focusId=project.characters[0]?.id||null;selection=focusId?{kind:'character',id:focusId}:null;queueSave();refresh();}
+function resetProject(data){endInlineEdit();project=validateImported(data);undoStack=[];redoStack=[];positions.clear();camera={panX:0,panY:0,scale:window.innerWidth<=760?.85:1};focusId=project.characters[0]?.id||null;selection=focusId?{kind:'character',id:focusId}:null;queueSave();refresh();}
 
 // GRAPH + LAYOUT
 function visibleNeighborhood(){
@@ -165,9 +167,16 @@ function renderGraphEdges(){
       const arrow=track.to?makeSvg('polygon',{'class':'edge-arrow'+(selected?' selected':'')}):null;
       if(arrow)arrow.style.fill=tone(track.rels[0].type);
       group.append(line,hit);if(arrow)group.append(arrow);
-      const title=makeSvg('title');title.textContent=track.rels.map(r=>r.type).join(' · ')+(track.from?` (${roster(track.from)?.name} → ${roster(track.to)?.name})`:' (mutual)');group.append(title);
+      // Visual hover text is intentionally concise: arrowheads already indicate direction.
+      const title=makeSvg('title');title.textContent=track.rels.map(r=>r.type).join(' · ');group.append(title);
+      const accessibleDirection=track.from?`${roster(track.from)?.name} to ${roster(track.to)?.name}`:'mutual';
+      hit.setAttribute('role','button');hit.setAttribute('tabindex','0');
+      hit.setAttribute('aria-label',`${track.rels.map(r=>r.type).join(', ')} relationship, ${accessibleDirection}`);
+      hit.dataset.relationshipId=track.rels[0].id;
       edgesLayer.append(group);
-      hit.addEventListener('click',ev=>{ev.stopPropagation();if(pointer?.moved)return;selection={kind:'relationship',id:track.rels[0].id};renderPanel();renderGraphEdges();});
+      const openEdge=()=>{selection={kind:'relationship',id:track.rels[0].id};renderPanel();renderGraphEdges();};
+      hit.addEventListener('click',ev=>{ev.stopPropagation();if(pointer?.moved||performance.now()<suppressTouchClickUntil)return;openEdge();});
+      hit.addEventListener('keydown',ev=>{if(ev.key==='Enter'||ev.key===' '){ev.preventDefault();openEdge();}});
       edgeElements.push({item,track,index,trackCount:item.tracks.length,line,hit,arrow});
     });
   }
@@ -183,10 +192,14 @@ function renderGraphNodes(){
     nodesLayer.append(btn);nodeElements.set(id,btn);
   }
   $('empty-network').classList.toggle('hidden',project.characters.length!==0);
+  const hint=$('large-map-hint');
+  hint.classList.toggle('hidden',visibleIds.length<=110);
+  hint.textContent=`${visibleIds.length} characters visible. Try 1 step for smoother navigation.`;
   $('canvas-label').textContent=focusId?`EXPLORING ${roster(focusId)?.name.toUpperCase()||'THE WEB'}`:'THE LIVING WEB';
 }
 function updatePositions(){
-  for(const [id,el] of nodeElements){const p=positions.get(id);if(!p)continue;el.style.left=`${p.x}px`;el.style.top=`${p.y}px`;}
+  // Move nodes with composited transforms instead of changing their layout positions.
+  for(const [id,el] of nodeElements){const p=positions.get(id);if(!p)continue;el.style.transform=`translate3d(${p.x}px,${p.y}px,0) translate(-50%,-50%)`;}
   for(const {item,track,index,trackCount,line,hit,arrow} of edgeElements){
     const a=positions.get(item.source),b=positions.get(item.target);if(!a||!b)continue;
     const dx=b.x-a.x,dy=b.y-a.y,distance=Math.hypot(dx,dy)||1;
@@ -208,9 +221,9 @@ function updatePositions(){
     }
   }
 }
-function startLayout(){if(raf)return;raf=requestAnimationFrame(layoutFrame);}
+function startLayout(){if(raf||activeTouches.size)return;raf=requestAnimationFrame(layoutFrame);}
 function layoutFrame(){
-  raf=null;if(!visibleIds.length)return;
+  raf=null;if(!visibleIds.length||activeTouches.size||document.hidden)return;
   layoutActivity++;
   let moving=0;
   const ids=visibleIds;const list=ids.map(id=>positions.get(id));
@@ -221,7 +234,8 @@ function layoutFrame(){
   }
   // A limited collision/repulsion pass avoids the hairball effect without a heavy library.
   // Cap pair checks for enormous imported projects; neighborhood rendering stays responsive.
-  if(ids.length<=380){
+  // Mobile favors interaction responsiveness over sustained all-pairs repulsion.
+  if(ids.length<=(window.innerWidth<=760?85:380)){
     for(let i=0;i<ids.length;i++)for(let j=i+1;j<ids.length;j++){
       const a=list[i],b=list[j];if(!a||!b)continue;
       const dx=b.x-a.x,dy=b.y-a.y,d2=dx*dx+dy*dy;
@@ -236,30 +250,56 @@ function layoutFrame(){
     p.vx*=.74;p.vy*=.74;p.x+=p.vx;p.y+=p.vy;moving+=Math.abs(p.vx)+Math.abs(p.vy);
   }
   updatePositions();
-  if(moving>.14&&layoutActivity<360)startLayout();
+  if(moving>.14&&layoutActivity<(window.innerWidth<=760?125:360))startLayout();
 }
 function applyCamera(){const r=viewport.getBoundingClientRect();scene.style.transform=`translate(${r.width/2+camera.panX}px,${r.height/2+camera.panY}px) scale(${camera.scale})`;}
 function zoomAt(factor,cx,cy){const rect=viewport.getBoundingClientRect(),mx=cx-rect.left-rect.width/2,my=cy-rect.top-rect.height/2;
   const before=camera.scale,after=clamp(before*factor,.24,2.8);camera.panX=mx-(mx-camera.panX)*after/before;camera.panY=my-(my-camera.panY)*after/before;camera.scale=after;applyCamera();
 }
-function fitMap(){if(!visibleIds.length)return;let left=0,right=0,top=0,bottom=0;for(const id of visibleIds){const p=positions.get(id);if(!p)continue;left=Math.min(left,p.x-100);right=Math.max(right,p.x+100);top=Math.min(top,p.y-85);bottom=Math.max(bottom,p.y+85);}
-  const r=viewport.getBoundingClientRect();const w=right-left,h=bottom-top,scale=clamp(Math.min((r.width-65)/w,(r.height-175)/h),.25,1.3);camera.scale=scale;camera.panX=-(left+right)/2*scale;camera.panY=-(top+bottom)/2*scale;applyCamera();toast('Map fitted to view');}
-function selectCharacter(id){if(!roster(id))return;endInlineEdit();focusId=id;selection={kind:'character',id};camera.panX=0;camera.panY=0;camera.scale=window.innerWidth<=760?.69:1;applyCamera();recalcScene();renderPanel();}
+function fitToIds(ids,label='Map fitted to view'){
+  if(!ids.length)return;
+  let left=Infinity,right=-Infinity,top=Infinity,bottom=-Infinity;
+  for(const id of ids){
+    const p=positions.get(id);if(!p)continue;
+    const el=nodeElements.get(id),w=(el?.offsetWidth||140)/2+17,h=(el?.offsetHeight||58)/2+15;
+    left=Math.min(left,p.x-w);right=Math.max(right,p.x+w);
+    top=Math.min(top,p.y-h);bottom=Math.max(bottom,p.y+h);
+  }
+  if(!isFinite(left))return;
+  const r=viewport.getBoundingClientRect(),mobile=window.innerWidth<=760;
+  const availableWidth=Math.max(40,r.width-(mobile?38:80));
+  const availableHeight=Math.max(40,r.height-(mobile?112:170));
+  const scale=clamp(Math.min(availableWidth/Math.max(1,right-left),availableHeight/Math.max(1,bottom-top)),.24,mobile?1.15:1.4);
+  camera.scale=scale;
+  camera.panX=-(left+right)/2*scale;
+  camera.panY=-(top+bottom)/2*scale+(mobile?15:12);
+  applyCamera();toast(label);
+}
+function fitMap(){fitToIds(visibleIds);}
+function fitNeighborhood(){
+  const near=visibleIds.filter(id=>(visibleDistances.get(id)??99)<=1);
+  fitToIds(near,'Immediate connections fitted');
+}
+function selectCharacter(id){if(!roster(id))return;endInlineEdit();focusId=id;selection={kind:'character',id};camera.panX=0;camera.panY=0;camera.scale=window.innerWidth<=760?.85:1;applyCamera();recalcScene();renderPanel();}
 function refresh(){ensureValidSelection();$('project-name').textContent=project.name;$('roster-count').textContent=`${project.characters.length} people · ${project.relationships.length} relationships`;
   $('names-only').checked=project.settings.namesOnly;document.querySelectorAll('[data-depth]').forEach(b=>b.classList.toggle('active',b.dataset.depth===project.settings.depth));updateUndoButtons();recalcScene();renderPanel();applyCamera();}
 function updateUndoButtons(){$('undo-button').disabled=!undoStack.length;$('redo-button').disabled=!redoStack.length;}
 
 // GRAPH INTERACTIONS
-function startNodeDrag(ev){if(ev.button!==0)return;ev.stopPropagation();ev.preventDefault();const id=ev.currentTarget.dataset.nodeId;
+function startNodeDrag(ev){
+  // On phones a finger dragging a character pans the map, not the character.
+  if(ev.pointerType==='touch'||ev.button!==0)return;
+  ev.stopPropagation();ev.preventDefault();const id=ev.currentTarget.dataset.nodeId;
   pointer={mode:'node',id,shift:ev.shiftKey,startX:ev.clientX,startY:ev.clientY,lastX:ev.clientX,lastY:ev.clientY,moved:false};ev.currentTarget.classList.add('is-dragging');
 }
 viewport.addEventListener('pointerdown',ev=>{
-  if(ev.button!==0||ev.target.closest('.network-node')||ev.target.closest('.canvas-controls'))return;
+  if(ev.pointerType==='touch'||ev.button!==0||ev.target.closest('.network-node')||ev.target.closest('.canvas-controls'))return;
   if(ev.target.closest('.edge-hit'))return;
   pointer={mode:'pan',startX:ev.clientX,startY:ev.clientY,lastX:ev.clientX,lastY:ev.clientY,moved:false};
 });
 window.addEventListener('pointermove',ev=>{
-  if(!pointer)return;const dx=ev.clientX-pointer.lastX,dy=ev.clientY-pointer.lastY;
+  if(ev.pointerType==='touch'||!pointer)return;
+  const dx=ev.clientX-pointer.lastX,dy=ev.clientY-pointer.lastY;
   if(Math.abs(ev.clientX-pointer.startX)>4||Math.abs(ev.clientY-pointer.startY)>4)pointer.moved=true;
   if(pointer.moved){
     if(pointer.mode==='node'){
@@ -270,7 +310,8 @@ window.addEventListener('pointermove',ev=>{
   pointer.lastX=ev.clientX;pointer.lastY=ev.clientY;
 });
 window.addEventListener('pointerup',ev=>{
-  if(!pointer)return;const p=pointer;pointer=null;
+  if(ev.pointerType==='touch'||!pointer)return;
+  const p=pointer;pointer=null;
   document.querySelectorAll('.network-node.is-dragging').forEach(el=>el.classList.remove('is-dragging'));
   if(p.mode==='node'&&!p.moved){
     if((p.shift||ev.shiftKey)&&focusId&&focusId!==p.id&&$('modal-backdrop').classList.contains('hidden')){
@@ -279,20 +320,110 @@ window.addEventListener('pointerup',ev=>{
   }
   else if(p.mode==='node'){const pos=positions.get(p.id);if(pos){targetPositions.set(p.id,{x:pos.x,y:pos.y});startLayout();}}
 });
-window.addEventListener('pointercancel',()=>{pointer=null;document.querySelectorAll('.network-node.is-dragging').forEach(el=>el.classList.remove('is-dragging'));});
+window.addEventListener('pointercancel',ev=>{
+  if(ev.pointerType==='touch')return;
+  pointer=null;document.querySelectorAll('.network-node.is-dragging').forEach(el=>el.classList.remove('is-dragging'));
+});
+
+// Dedicated multi-touch navigation, using Pointer Events rather than browser page zoom.
+// One finger pans anywhere on the map; a tap selects; two fingers translate + pinch the camera.
+function touchGeometry(){
+  const values=[...activeTouches.values()];if(values.length<2)return null;
+  const [a,b]=values;return {centerX:(a.x+b.x)/2,centerY:(a.y+b.y)/2,distance:Math.max(1,Math.hypot(a.x-b.x,a.y-b.y))};
+}
+viewport.addEventListener('pointerdown',ev=>{
+  if(ev.pointerType!=='touch'||ev.target.closest('.canvas-controls,.empty-network'))return;
+  ev.preventDefault();ev.stopPropagation();
+  activeTouches.set(ev.pointerId,{x:ev.clientX,y:ev.clientY});
+  try{viewport.setPointerCapture(ev.pointerId);}catch(_){}
+  if(activeTouches.size===1){
+    const node=ev.target.closest('.network-node');const edge=ev.target.closest('.edge-hit');
+    touchGesture={mode:'single',pointerId:ev.pointerId,startX:ev.clientX,startY:ev.clientY,lastX:ev.clientX,lastY:ev.clientY,moved:false,nodeId:node?.dataset.nodeId||null,edgeId:edge?.dataset.relationshipId||null};
+  }else{
+    const geometry=touchGeometry();
+    if(geometry){touchGesture={mode:'pinch',...geometry,moved:true};}
+  }
+},true);
+window.addEventListener('pointermove',ev=>{
+  if(ev.pointerType!=='touch'||!activeTouches.has(ev.pointerId))return;
+  ev.preventDefault();
+  activeTouches.set(ev.pointerId,{x:ev.clientX,y:ev.clientY});
+  if(!touchGesture)return;
+  if(activeTouches.size>=2){
+    const g=touchGeometry();if(!g)return;
+    if(touchGesture.mode!=='pinch'){touchGesture={mode:'pinch',...g,moved:true};return;}
+    const old=touchGesture;
+    zoomAt(g.distance/old.distance,old.centerX,old.centerY);
+    camera.panX+=g.centerX-old.centerX;
+    camera.panY+=g.centerY-old.centerY;
+    applyCamera();
+    touchGesture={mode:'pinch',...g,moved:true};
+    return;
+  }
+  if(touchGesture.mode==='pinch')return;
+  const g=touchGesture;
+  if(Math.hypot(ev.clientX-g.startX,ev.clientY-g.startY)>8)g.moved=true;
+  if(g.moved){camera.panX+=ev.clientX-g.lastX;camera.panY+=ev.clientY-g.lastY;applyCamera();}
+  g.lastX=ev.clientX;g.lastY=ev.clientY;
+},{passive:false});
+function finishTouch(ev,cancelled=false){
+  if(ev.pointerType!=='touch'||!activeTouches.has(ev.pointerId))return;
+  const wasSingle=activeTouches.size===1,g=touchGesture;
+  activeTouches.delete(ev.pointerId);
+  suppressTouchClickUntil=performance.now()+450;
+  if(wasSingle){
+    touchGesture=null;
+    if(!cancelled&&g&&!g.moved&&g.mode==='single'){
+      if(g.nodeId)selectCharacter(g.nodeId);
+      else if(g.edgeId&&edgeById(g.edgeId)){
+        selection={kind:'relationship',id:g.edgeId};renderPanel();renderGraphEdges();expandMobileDetails();
+      }
+    }
+    // Continue settling a layout that was paused for touch input.
+    if(layoutActivity<(window.innerWidth<=760?125:360))startLayout();
+  }else if(activeTouches.size===1){
+    const remaining=[...activeTouches.entries()][0];
+    touchGesture={mode:'single',pointerId:remaining[0],startX:remaining[1].x,startY:remaining[1].y,lastX:remaining[1].x,lastY:remaining[1].y,moved:true};
+  }else if(activeTouches.size>=2){touchGesture={mode:'pinch',...touchGeometry(),moved:true};}
+}
+window.addEventListener('pointerup',ev=>finishTouch(ev));
+window.addEventListener('pointercancel',ev=>finishTouch(ev,true));
+window.addEventListener('blur',()=>{activeTouches.clear();touchGesture=null;pointer=null;});
 viewport.addEventListener('wheel',ev=>{ev.preventDefault();zoomAt(ev.deltaY<0?1.1:1/1.1,ev.clientX,ev.clientY);},{passive:false});
-viewport.addEventListener('dblclick',ev=>{if(ev.target.closest('.network-node')||ev.target.closest('.edge-hit'))return;openModal('new-character');});
+viewport.addEventListener('dblclick',ev=>{if(ev.pointerType==='touch'||ev.target.closest('.network-node')||ev.target.closest('.edge-hit'))return;openModal('new-character');});
 $('zoom-in').addEventListener('click',()=>{const r=viewport.getBoundingClientRect();zoomAt(1.2,r.left+r.width/2,r.top+r.height/2);});
 $('zoom-out').addEventListener('click',()=>{const r=viewport.getBoundingClientRect();zoomAt(1/1.2,r.left+r.width/2,r.top+r.height/2);});
 $('fit-map').addEventListener('click',fitMap);
+$('fit-neighborhood').addEventListener('click',fitNeighborhood);
 window.addEventListener('resize',applyCamera);
-$('mobile-panel-toggle').addEventListener('click',()=>{const pane=$('detail-pane');const expanded=pane.classList.toggle('expanded');$('mobile-panel-toggle').setAttribute('aria-expanded',String(expanded));$('mobile-panel-toggle').innerHTML=expanded?'⌄ <span>Collapse details</span>':'⌃ <span>Expand details</span>';requestAnimationFrame(applyCamera);});
+if(window.ResizeObserver)new ResizeObserver(applyCamera).observe(viewport);
+document.addEventListener('visibilitychange',()=>{if(!document.hidden&&visibleIds.length)startLayout();});
+
+function updateMobilePanelLabel(){
+  const button=$('mobile-panel-toggle');
+  const label=selection?.kind==='relationship'?edgeById(selection.id)?.type:selection?.kind==='character'?roster(selection.id)?.name:'World details';
+  const open=$('detail-pane').classList.contains('expanded');
+  document.querySelector('.workspace').classList.toggle('mobile-details-open',open);
+  button.innerHTML=`<span class="mobile-sheet-grip" aria-hidden="true"></span><span class="mobile-sheet-text">${esc(label||'World details')} · ${open?'Hide':'View'} details</span><span class="mobile-sheet-chevron" aria-hidden="true">${open?'⌄':'⌃'}</span>`;
+  button.setAttribute('aria-expanded',String(open));
+  button.setAttribute('aria-label',`${open?'Collapse':'Expand'} ${label||'world'} details`);
+}
+function expandMobileDetails(){
+  if(window.innerWidth>760)return;
+  $('detail-pane').classList.add('expanded');updateMobilePanelLabel();
+}
+$('mobile-panel-toggle').addEventListener('click',()=>{
+  $('detail-pane').classList.toggle('expanded');
+  updateMobilePanelLabel();
+  requestAnimationFrame(applyCamera);
+});
 
 // THE DETAIL PANE
 function lineField(label,field,value,opts={}){const type=opts.multiline?'textarea':'input';const placeholder=esc(opts.placeholder||'Optional');
   return `<div class="field-group"><label class="field-label" for="field-${field}">${label}</label>${type==='textarea'?`<textarea id="field-${field}" data-field="${field}" class="field-input ${opts.large?'rich-text':''}" rows="${opts.rows||3}" placeholder="${placeholder}">${esc(value)}</textarea>`:`<input id="field-${field}" data-field="${field}" class="field-input ${opts.large?'name-input':''}" value="${esc(value)}" placeholder="${placeholder}" ${field==='name'?'maxlength="180"':''}/>`}${opts.help?`<p class="field-help">${opts.help}</p>`:''}</div>`;
 }
 function renderPanel(){
+  updateMobilePanelLabel();
   const pane=$('detail-content');
   if(!selection){pane.innerHTML=`<div class="welcome-mark">✳</div><h2 class="welcome-title">A world of connections</h2><p class="welcome-copy">Create your first character and explore the relationships that grow around them.</p><div class="welcome-tips"><div class="tip"><span class="tip-number">1</span>Click a character to center their neighborhood.</div><div class="tip"><span class="tip-number">2</span>Click a connecting line to edit a relationship.</div><div class="tip"><span class="tip-number">3</span>Changes save locally. Export a backup from the menu.</div></div>`;return;}
   if(selection.kind==='relationship'){
@@ -431,8 +562,8 @@ function openModal(kind,context={}){
     case 'character-actions':{
       const c=roster(context.id);set(c?.name||'Character',`<p class="modal-desc">Quick actions for this character.</p><div class="modal-options"><button type="button" class="secondary-button" id="action-duplicate">⧉ Duplicate character</button><button type="button" class="secondary-button" id="action-connect">↗ Add connection</button><button type="button" class="secondary-button" id="action-focus">◎ Focus here</button></div>`,'Close');break;
     }
-    case 'help':set('How to explore',`<div class="modal-preview"><b>Click a character</b> to center their connections and edit their details.<br><b>Shift-click a different visible character</b> to connect them with the currently centered one.<br><b>Click a line</b> to inspect or edit a relationship.<br><b>Drag the background</b> to pan; <b>scroll</b> to zoom.<br><b>Double-click blank space</b> to add someone.<br><b>Drag a portrait</b> into a character profile.<br><b>Search</b> reaches everyone, even those outside the current view.<br><b>1 step / 2 steps / Everyone</b> controls the visible neighborhood.</div><p class="modal-desc"><b>Shortcuts:</b> Shift-click Connect · / Search · + New character · Ctrl/⌘ Z Undo · Ctrl/⌘ Shift Z Redo.</p><p class="modal-desc">Your edits save in this browser, not on a server. Export a backup regularly, particularly before resetting your browser.</p>`,'Close','YOUR GUIDE');break;
-    case 'about':set('Character Web 0.1.2',`<p class="modal-desc">An offline-first interactive relationship encyclopedia. This first build is a proof of the network, editing, and local project workflows.</p><div class="modal-preview"><b>Included:</b> editable people and links, aliases, groups, optional portraits, search, recentering, zoom, local autosave, undo/redo, import/export.<br><b>Planned, not yet included:</b> full wiki linking, network analysis, timeline history, spoiler-safe publishing, ThreadWriter integration.</div><p class="modal-desc">This build has no external dependencies, account requirement, or network requests. New visitors begin with an empty world; projects stay in the browser unless exported.</p>`,'Close','ABOUT THIS PROTOTYPE');break;
+    case 'help':set('How to explore',`<div class="modal-preview"><b>Click a character</b> to center their connections and edit their details.<br><b>Shift-click a different visible character</b> to connect them with the currently centered one.<br><b>Click a line</b> to inspect or edit a relationship.<br><b>Drag the background</b> to pan; <b>scroll</b> to zoom. On touch screens, <b>drag with one finger</b> to pan and <b>pinch with two fingers</b> to zoom. Use <b>◎</b> to fit immediate connections and <b>⤢</b> to fit everything visible.<br><b>Double-click blank space</b> to add someone.<br><b>Drag a portrait</b> into a character profile.<br><b>Search</b> reaches everyone, even those outside the current view.<br><b>1 step / 2 steps / Everyone</b> controls the visible neighborhood.</div><p class="modal-desc"><b>Shortcuts:</b> Shift-click Connect · / Search · + New character · Ctrl/⌘ Z Undo · Ctrl/⌘ Shift Z Redo.</p><p class="modal-desc">Your edits save in this browser, not on a server. Export a backup regularly, particularly before resetting your browser.</p>`,'Close','YOUR GUIDE');break;
+    case 'about':set('Character Web 0.1.3',`<p class="modal-desc">An offline-first interactive relationship encyclopedia. This first build is a proof of the network, editing, and local project workflows.</p><div class="modal-preview"><b>Included:</b> editable people and links, aliases, groups, optional portraits, search, recentering, zoom, local autosave, undo/redo, import/export.<br><b>Planned, not yet included:</b> full wiki linking, network analysis, timeline history, spoiler-safe publishing, ThreadWriter integration.</div><p class="modal-desc">This build has no external dependencies, account requirement, or network requests. New visitors begin with an empty world; projects stay in the browser unless exported.</p>`,'Close','ABOUT THIS PROTOTYPE');break;
   }
   $('modal-backdrop').classList.remove('hidden');
   if(['about','help','character-actions'].includes(kind)){$('modal-submit').textContent='Close';$('modal-cancel').classList.add('hidden');}else $('modal-cancel').classList.remove('hidden');
@@ -500,7 +631,7 @@ async function initialize(){
   else project=freshProject('Untitled world');
   focusId=project.characters[0]?.id||null;
   selection=focusId?{kind:'character',id:focusId}:null;
-  camera.scale=window.innerWidth<=760?.69:1;
+  camera.scale=window.innerWidth<=760?.85:1;
   refresh();saveState(storageMode==='memory'?'Export backups to preserve work':'Saved in this browser',storageMode==='memory'?'error':'ok');
   if(!raw&&storageMode!=='memory')queueSave();
   if(storageMode==='memory')toast('Browser storage unavailable. Please export backups.','warn');

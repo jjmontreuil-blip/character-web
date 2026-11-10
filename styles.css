@@ -36,3 +36,62 @@
 .edge-arrow.selected{fill:#b7f1f5!important;opacity:1}
 .edge-group:hover .edge-arrow{opacity:1;filter:brightness(1.3)}
 .network-node:focus-visible .node-name{outline:2px solid #85e5ea;outline-offset:3px}
+
+/* 0.1.3: comfortable touch-navigation and compact mobile detail sheet. */
+.large-map-hint{position:absolute;top:75px;left:50%;transform:translateX(-50%);background:#263b51de;border:1px solid #526b82;border-radius:10px;color:#d7e5ef;padding:7px 11px;font-size:11px;line-height:1.4;max-width:calc(100% - 40px);pointer-events:none;text-align:center;z-index:4}
+.edge-hit:focus-visible{stroke:#9ae5e5;stroke-opacity:.3;outline:none}
+@media(max-width:760px){
+  .app-shell{height:100dvh;min-height:0;overflow:hidden}
+  .topbar{height:54px;flex-basis:54px;padding:0 10px}
+  .brand-mark{width:31px;height:31px}
+  .brand-text small{letter-spacing:1.1px}
+  .workspace{min-height:0;overflow:hidden}
+  .graph-column{min-height:0;flex:1 1 auto}
+  .network-viewport{min-height:0;touch-action:none;overscroll-behavior:contain}
+  .network-node{touch-action:none}
+  .detail-pane,.detail-pane.expanded{
+    flex-shrink:0;width:100%;min-width:0;border-radius:16px 16px 0 0;
+    transition:flex-basis .2s ease,height .2s ease;overflow:hidden
+  }
+  .detail-pane{height:48px;flex-basis:48px}
+  .detail-pane.expanded{height:min(68dvh,620px);flex-basis:min(68dvh,620px)}
+  .detail-pane .detail-content{display:none;min-height:0}
+  .detail-pane.expanded .detail-content{display:block;height:calc(100% - 46px);overflow:auto;overscroll-behavior:contain;-webkit-overflow-scrolling:touch;padding:16px 16px 35px}
+  .mobile-panel-toggle{
+    display:flex;gap:10px;justify-content:center;align-items:center;position:relative;top:auto;
+    width:100%;height:46px;min-height:46px;padding:4px 12px;margin:0;
+    background:#21364a;color:#dceef6;border:0;border-bottom:1px solid #40566a;
+    border-radius:16px 16px 0 0;font-size:12px;letter-spacing:.05px;cursor:pointer
+  }
+  .mobile-sheet-grip{position:absolute;top:4px;left:50%;transform:translateX(-50%);width:35px;height:3px;background:#7796a9;border-radius:5px}
+  .mobile-sheet-text{font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:85%;padding-top:4px}
+  .mobile-sheet-chevron{font-size:22px;line-height:1;position:absolute;right:17px;top:14px;color:#95c5d4}
+  .bottom-toolbar{height:48px;min-height:48px;padding:0 10px;gap:5px}
+  .segmented button{min-height:34px;font-size:11px;padding:6px 9px}
+  .compact-toggle{font-size:11px}
+  .canvas-controls{right:11px;bottom:13px;gap:1px}
+  .canvas-control{width:42px;height:42px;font-size:21px}
+  .canvas-label{left:12px;bottom:15px;max-width:calc(100% - 85px);font-size:9px;letter-spacing:1.2px}
+  .canvas-hint{display:none}
+  .large-map-hint{top:62px;font-size:10px}
+  .field-input,.search-wrap input{font-size:16px}
+  .modal{max-height:calc(100dvh - 24px);padding:17px}
+  .modal-backdrop{padding:12px}
+  .connection-item,.panel-action{min-height:41px}
+}
+@media(max-width:405px){
+  .segmented button{padding:6px 6px;font-size:10px}
+  .bottom-toolbar{padding:0 6px}
+}
+@media(prefers-reduced-motion:reduce){.detail-pane{transition:none!important}}
+
+/* Transform-based node motion avoids expensive per-frame layout changes. */
+.network-node{left:0;top:0;will-change:transform}
+
+/* An expanded mobile editor leaves a small map preview: no toolbar pileup. */
+@media(max-width:760px){
+  .workspace.mobile-details-open .graph-toolbar,
+  .workspace.mobile-details-open .canvas-controls,
+  .workspace.mobile-details-open .canvas-label,
+  .workspace.mobile-details-open .large-map-hint{display:none}
+}
