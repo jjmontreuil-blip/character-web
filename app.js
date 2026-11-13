@@ -1,4 +1,4 @@
-/* Character Web 0.1.3. Offline, local-first, dependency-free prototype. */
+/* Character Web 0.1.4. Offline, local-first, dependency-free prototype. */
 (() => {
 'use strict';
 const $ = id => document.getElementById(id);
@@ -102,7 +102,7 @@ function endInlineEdit(){
 }
 function undo(){endInlineEdit();if(!undoStack.length)return;redoStack.push(JSON.stringify(project));project=JSON.parse(undoStack.pop());ensureValidSelection();queueSave();refresh();toast('Undone');}
 function redo(){endInlineEdit();if(!redoStack.length)return;undoStack.push(JSON.stringify(project));project=JSON.parse(redoStack.pop());ensureValidSelection();queueSave();refresh();toast('Redone');}
-function ensureValidSelection(){if(focusId&&!roster(focusId))focusId=project.characters[0]?.id||null;if(!focusId)focusId=project.characters[0]?.id||null;if(selection?.kind==='character'&&!roster(selection.id))selection=null;if(selection?.kind==='relationship'&&!edgeById(selection.id))selection=null;if(!selection&&focusId)selection={kind:'character',id:focusId};}
+function ensureValidSelection(){if(focusId&&!roster(focusId))focusId=project.characters[0]?.id||null;if(!focusId)focusId=project.characters[0]?.id||null;if(selection?.kind==='character'&&!roster(selection.id))selection=null;if(selection?.kind==='relationship'&&!edgeById(selection.id))selection=null;}
 function freshProject(name){return {schemaVersion:1,id:uid(),name,description:'',createdAt:new Date().toISOString(),updatedAt:new Date().toISOString(),characters:[],relationships:[],settings:{depth:'1',namesOnly:false}};}
 function resetProject(data){endInlineEdit();project=validateImported(data);undoStack=[];redoStack=[];positions.clear();camera={panX:0,panY:0,scale:window.innerWidth<=760?.85:1};focusId=project.characters[0]?.id||null;selection=focusId?{kind:'character',id:focusId}:null;queueSave();refresh();}
 
@@ -281,8 +281,16 @@ function fitNeighborhood(){
   fitToIds(near,'Immediate connections fitted');
 }
 function selectCharacter(id){if(!roster(id))return;endInlineEdit();focusId=id;selection={kind:'character',id};camera.panX=0;camera.panY=0;camera.scale=window.innerWidth<=760?.85:1;applyCamera();recalcScene();renderPanel();}
+function clearSelection(){
+  if(!selection)return;
+  endInlineEdit();selection=null;renderPanel();renderGraphEdges();
+}
+function updateClearSelectionButton(){
+  $('clear-selection').disabled=!selection;
+  $('clear-selection').setAttribute('aria-label',selection?'Clear selection':'Nothing selected');
+}
 function refresh(){ensureValidSelection();$('project-name').textContent=project.name;$('roster-count').textContent=`${project.characters.length} people · ${project.relationships.length} relationships`;
-  $('names-only').checked=project.settings.namesOnly;document.querySelectorAll('[data-depth]').forEach(b=>b.classList.toggle('active',b.dataset.depth===project.settings.depth));updateUndoButtons();recalcScene();renderPanel();applyCamera();}
+  $('names-only').checked=project.settings.namesOnly;document.querySelectorAll('[data-depth]').forEach(b=>b.classList.toggle('active',b.dataset.depth===project.settings.depth));updateUndoButtons();recalcScene();renderPanel();renderRoster();applyCamera();}
 function updateUndoButtons(){$('undo-button').disabled=!undoStack.length;$('redo-button').disabled=!redoStack.length;}
 
 // GRAPH INTERACTIONS
@@ -319,6 +327,7 @@ window.addEventListener('pointerup',ev=>{
     }else selectCharacter(p.id);
   }
   else if(p.mode==='node'){const pos=positions.get(p.id);if(pos){targetPositions.set(p.id,{x:pos.x,y:pos.y});startLayout();}}
+  else if(p.mode==='pan'&&!p.moved){clearSelection();}
 });
 window.addEventListener('pointercancel',ev=>{
   if(ev.pointerType==='touch')return;
@@ -377,7 +386,7 @@ function finishTouch(ev,cancelled=false){
       if(g.nodeId)selectCharacter(g.nodeId);
       else if(g.edgeId&&edgeById(g.edgeId)){
         selection={kind:'relationship',id:g.edgeId};renderPanel();renderGraphEdges();expandMobileDetails();
-      }
+      }else clearSelection();
     }
     // Continue settling a layout that was paused for touch input.
     if(layoutActivity<(window.innerWidth<=760?125:360))startLayout();
@@ -401,7 +410,7 @@ document.addEventListener('visibilitychange',()=>{if(!document.hidden&&visibleId
 
 function updateMobilePanelLabel(){
   const button=$('mobile-panel-toggle');
-  const label=selection?.kind==='relationship'?edgeById(selection.id)?.type:selection?.kind==='character'?roster(selection.id)?.name:'World details';
+  const label=selection?.kind==='relationship'?edgeById(selection.id)?.type:selection?.kind==='character'?roster(selection.id)?.name:focusId?'Nothing selected':'World details';
   const open=$('detail-pane').classList.contains('expanded');
   document.querySelector('.workspace').classList.toggle('mobile-details-open',open);
   button.innerHTML=`<span class="mobile-sheet-grip" aria-hidden="true"></span><span class="mobile-sheet-text">${esc(label||'World details')} · ${open?'Hide':'View'} details</span><span class="mobile-sheet-chevron" aria-hidden="true">${open?'⌄':'⌃'}</span>`;
@@ -423,13 +432,17 @@ function lineField(label,field,value,opts={}){const type=opts.multiline?'textare
   return `<div class="field-group"><label class="field-label" for="field-${field}">${label}</label>${type==='textarea'?`<textarea id="field-${field}" data-field="${field}" class="field-input ${opts.large?'rich-text':''}" rows="${opts.rows||3}" placeholder="${placeholder}">${esc(value)}</textarea>`:`<input id="field-${field}" data-field="${field}" class="field-input ${opts.large?'name-input':''}" value="${esc(value)}" placeholder="${placeholder}" ${field==='name'?'maxlength="180"':''}/>`}${opts.help?`<p class="field-help">${opts.help}</p>`:''}</div>`;
 }
 function renderPanel(){
-  updateMobilePanelLabel();
+  updateMobilePanelLabel();updateClearSelectionButton();
   const pane=$('detail-content');
-  if(!selection){pane.innerHTML=`<div class="welcome-mark">✳</div><h2 class="welcome-title">A world of connections</h2><p class="welcome-copy">Create your first character and explore the relationships that grow around them.</p><div class="welcome-tips"><div class="tip"><span class="tip-number">1</span>Click a character to center their neighborhood.</div><div class="tip"><span class="tip-number">2</span>Click a connecting line to edit a relationship.</div><div class="tip"><span class="tip-number">3</span>Changes save locally. Export a backup from the menu.</div></div>`;return;}
+  if(!selection){
+    const current=focusId?roster(focusId):null;
+    pane.innerHTML=`<div class="welcome-mark">✳</div><h2 class="welcome-title">Nothing selected</h2><p class="welcome-copy">${current?`Still exploring <strong>${esc(current.name)}</strong>'s neighborhood. Pick a character or relationship to inspect it.`:'Your world starts with one name. Add a character to begin exploring.'}</p><div class="welcome-tips"><div class="tip"><span class="tip-number">1</span>Tap or click a character to explore their connections.</div><div class="tip"><span class="tip-number">2</span>Select a connecting line to inspect a relationship.</div><div class="tip"><span class="tip-number">3</span>Use the Roster to jump to anyone, even if they're off-screen.</div></div>${current?`<button class="secondary-button empty-inspect" data-panel-action="inspect-focus">Inspect ${esc(current.name)}</button>`:''}`;
+    return;
+  }
   if(selection.kind==='relationship'){
     const rel=edgeById(selection.id);if(!rel){selection=null;return renderPanel();}
     const a=roster(rel.source),b=roster(rel.target);
-    pane.innerHTML=`<div class="detail-header-row"><span class="panel-section-title">CONNECTION DETAILS</span><button class="panel-action" data-panel-action="back">← Character</button></div>
+    pane.innerHTML=`<div class="detail-header-row"><span class="panel-section-title">CONNECTION DETAILS</span><span class="detail-header-actions"><button class="panel-action" data-panel-action="back">← Character</button><button class="panel-action clear-panel-action" data-panel-action="clear-selection" title="Clear selection" aria-label="Clear relationship selection">×</button></span></div>
       <div class="relationship-top"><button class="relationship-avatar" data-panel-action="focus" data-id="${esc(a.id)}">${esc(a.name)}</button><div class="relationship-icon">${rel.direction==='forward'?'→':rel.direction==='reverse'?'←':'↔'}</div><button class="relationship-avatar" data-panel-action="focus" data-id="${esc(b.id)}">${esc(b.name)}</button></div>
       ${lineField('Relationship label','type',rel.type,{placeholder:'Friends, rivals, co-workers…'})}
       <div class="field-group"><label class="field-label" for="field-direction">DIRECTION</label><select id="field-direction" data-field="direction" class="field-input"><option value="mutual" ${rel.direction==='mutual'?'selected':''}>Mutual / undirected</option><option value="forward" ${rel.direction==='forward'?'selected':''}>${esc(a.name)} → ${esc(b.name)}</option><option value="reverse" ${rel.direction==='reverse'?'selected':''}>${esc(b.name)} → ${esc(a.name)}</option></select><p class="field-help">The connection remains navigable from either character.</p></div>
@@ -442,7 +455,7 @@ function renderPanel(){
   const c=roster(selection.id);if(!c){selection=null;return renderPanel();}
   const links=project.relationships.filter(r=>r.source===c.id||r.target===c.id);
   const target=c.portrait?`<img alt="Portrait for ${esc(c.name)}" src="${c.portrait}">`:'<span class="portrait-plus">＋</span><span>Add portrait</span>';
-  pane.innerHTML=`<div class="detail-header-row"><span class="panel-section-title">CHARACTER PROFILE</span><button class="panel-action" data-panel-action="duplicate" title="Duplicate this character, without copying existing relationships">⧉ Duplicate</button></div>
+  pane.innerHTML=`<div class="detail-header-row"><span class="panel-section-title">CHARACTER PROFILE</span><span class="detail-header-actions"><button class="panel-action" data-panel-action="duplicate" title="Duplicate this character, without copying existing relationships">⧉ Duplicate</button><button class="panel-action clear-panel-action" data-panel-action="clear-selection" title="Clear selection" aria-label="Clear character selection">×</button></span></div>
     <div class="profile-portrait"><button id="portrait-target" class="portrait-target" title="Click or drop an image to add a portrait">${target}</button><span class="portrait-help">Click or drop a picture · optional</span>${c.portrait?'<button class="panel-action" data-panel-action="remove-portrait">Remove portrait</button>':''}</div>
     ${lineField('CHARACTER NAME','name',c.name,{large:true,placeholder:'Character name'})}
     ${lineField('Aliases / other names','aliases',c.aliases.join(', '),{placeholder:'Optional; separate with commas'})}
@@ -470,12 +483,15 @@ $('detail-content').addEventListener('input',ev=>{
   queueSave();
   if(selection.kind==='character'&&field==='name'){const node=nodeElements.get(target.id);if(node){node.querySelector('.node-name').textContent=target.name;node.setAttribute('aria-label',`Explore ${target.name}`);}if(target.id===focusId)$('canvas-label').textContent=`EXPLORING ${target.name.toUpperCase()}`;}
   if(selection.kind==='relationship'&&field==='type')renderGraphEdges();
+  if(selection.kind==='character'&&field==='name')renderRoster();
 });
 $('detail-content').addEventListener('change',ev=>{if(ev.target.dataset.field==='direction'&&selection?.kind==='relationship'){
   const id=selection.id,value=ev.target.value;commit(()=>{edgeById(id).direction=value;});
 }});
 $('detail-content').addEventListener('click',ev=>{
   const button=ev.target.closest('[data-panel-action]');if(!button)return;const action=button.dataset.panelAction;
+  if(action==='clear-selection'){clearSelection();return;}
+  if(action==='inspect-focus'){selectCharacter(focusId);return;}
   if(action==='back'){selectCharacter(focusId||project.characters[0]?.id);return;}
   if(action==='focus'){selectCharacter(button.dataset.id);return;}
   if(action==='open-relationship'){endInlineEdit();selection={kind:'relationship',id:button.dataset.id};renderPanel();renderGraphEdges();return;}
@@ -503,8 +519,78 @@ async function loadPortrait(file,id){
 $('portrait-file').addEventListener('change',ev=>{if(ev.target.files[0]&&photoTarget)loadPortrait(ev.target.files[0],photoTarget);ev.target.value='';});
 function duplicateCharacter(id){const original=roster(id);if(!original)return;const newId=uid();commit(()=>{const copy=clone(original);copy.id=newId;copy.name=`${original.name} (copy)`;copy.createdAt=new Date().toISOString();project.characters.push(copy);});selectCharacter(newId);toast('Independent character copy created; relationships not copied.');}
 
+// CHARACTER ROSTER: full-project navigation, independent of map visibility.
+let rosterOpen=false;
+function rosterContacts(){
+  const contacts=new Map(project.characters.map(c=>[c.id,new Set()]));
+  for(const r of project.relationships){
+    if(contacts.has(r.source)&&contacts.has(r.target)&&r.source!==r.target){
+      contacts.get(r.source).add(r.target);contacts.get(r.target).add(r.source);
+    }
+  }
+  return contacts;
+}
+function renderRoster(){
+  if(!rosterOpen||!project)return;
+  const contacts=rosterContacts();
+  const unconnected=project.characters.filter(c=>(contacts.get(c.id)?.size||0)===0).length;
+  $('roster-summary').textContent=`${project.characters.length} characters · ${unconnected} without connections`;
+  const query=$('roster-search').value.trim().toLocaleLowerCase();
+  const unlinkedOnly=$('roster-unlinked').checked;
+  const sort=$('roster-sort').value;
+  const filtered=project.characters.filter(c=>
+    (!unlinkedOnly||(contacts.get(c.id)?.size||0)===0)&&
+    (!query||c.name.toLocaleLowerCase().includes(query)||c.aliases.some(a=>a.toLocaleLowerCase().includes(query)))
+  );
+  filtered.sort((a,b)=>{
+    const delta=(contacts.get(a.id)?.size||0)-(contacts.get(b.id)?.size||0);
+    return (sort==='most'?-delta:sort==='fewest'?delta:0)||sortByName(a,b);
+  });
+  const maxRows=250,shown=filtered.slice(0,maxRows);
+  $('roster-list').innerHTML=shown.length?shown.map(c=>{
+    const count=contacts.get(c.id)?.size||0;
+    return `<button type="button" class="roster-entry${c.id===focusId?' is-current':''}" data-roster-id="${esc(c.id)}" title="Explore ${esc(c.name)}">
+      <span class="roster-entry-main"><strong>${esc(c.name)}</strong>${c.aliases.length?`<small>${esc(c.aliases.slice(0,2).join(' · '))}</small>`:''}</span>
+      <span class="roster-entry-count${count===0?' is-zero':''}">${count===0?'No contacts':`${count} ${count===1?'contact':'contacts'}`}</span>
+      ${c.id===focusId?'<span class="roster-current" aria-label="Currently centered">◎</span>':''}
+    </button>`;
+  }).join(''):'<div class="roster-empty">No matching characters. Try another name or filter.</div>';
+  $('roster-footnote').textContent=filtered.length>maxRows?`Showing the first ${maxRows} of ${filtered.length} matches. Search to narrow the list.`:`${filtered.length} ${filtered.length===1?'character':'characters'} listed · Counts are distinct people, not relationship records.`;
+}
+function openRoster(){
+  if(rosterOpen)return;
+  rosterOpen=true;
+  $('roster-drawer').classList.remove('hidden');$('roster-scrim').classList.remove('hidden');
+  $('open-roster').setAttribute('aria-expanded','true');
+  $('workspace-menu').classList.add('hidden');$('workspace-menu-button').setAttribute('aria-expanded','false');
+  searchResults.classList.add('hidden');
+  renderRoster();$('roster-search').focus();
+}
+function closeRoster(restoreFocus=false){
+  if(!rosterOpen)return;
+  rosterOpen=false;
+  $('roster-drawer').classList.add('hidden');$('roster-scrim').classList.add('hidden');
+  $('open-roster').setAttribute('aria-expanded','false');
+  if(restoreFocus)$('open-roster').focus();
+}
+$('open-roster').addEventListener('click',()=>rosterOpen?closeRoster(true):openRoster());
+$('close-roster').addEventListener('click',()=>closeRoster(true));
+$('roster-scrim').addEventListener('click',()=>closeRoster());
+$('roster-search').addEventListener('input',renderRoster);
+$('roster-sort').addEventListener('change',renderRoster);
+$('roster-unlinked').addEventListener('change',renderRoster);
+$('roster-list').addEventListener('click',ev=>{
+  const choice=ev.target.closest('[data-roster-id]');if(!choice)return;
+  const id=choice.dataset.rosterId;
+  if(!roster(id))return;
+  closeRoster();selectCharacter(id);
+  viewport.focus({preventScroll:true});
+});
+
 // SEARCH + TOOLBAR
 const search=$('character-search'),searchResults=$('search-results');
+function updateToolbarPlaceholder(){search.placeholder=window.innerWidth<=760?'Find…':'Find anyone in this world…';}
+updateToolbarPlaceholder();window.addEventListener('resize',updateToolbarPlaceholder);
 function runSearch(){const q=search.value.trim().toLocaleLowerCase();if(!q){searchResults.classList.add('hidden');return;}
   const found=project.characters.filter(c=>c.name.toLocaleLowerCase().includes(q)||c.aliases.some(a=>a.toLocaleLowerCase().includes(q))).sort(sortByName).slice(0,30);
   searchResults.innerHTML=found.length?found.map(c=>`<button role="option" data-search-id="${esc(c.id)}"><b>${esc(c.name)}</b>${c.aliases.length?`<small>${esc(c.aliases.join(' · '))}</small>`:''}</button>`).join(''):'<div class="search-empty">No matching characters.</div>';
@@ -515,6 +601,7 @@ search.addEventListener('focus',runSearch);
 search.addEventListener('keydown',ev=>{if(ev.key==='Enter'){const first=searchResults.querySelector('[data-search-id]');if(first){ev.preventDefault();selectCharacter(first.dataset.searchId);search.value='';searchResults.classList.add('hidden');search.blur();}}if(ev.key==='Escape'){searchResults.classList.add('hidden');search.blur();}});
 searchResults.addEventListener('click',ev=>{const btn=ev.target.closest('[data-search-id]');if(!btn)return;selectCharacter(btn.dataset.searchId);search.value='';searchResults.classList.add('hidden');});
 document.addEventListener('click',ev=>{if(!ev.target.closest('.search-wrap'))searchResults.classList.add('hidden');if(!ev.target.closest('#workspace-menu')&&!ev.target.closest('#workspace-menu-button')){$('workspace-menu').classList.add('hidden');$('workspace-menu-button').setAttribute('aria-expanded','false');}});
+$('clear-selection').addEventListener('click',clearSelection);
 $('add-character').addEventListener('click',()=>openModal('new-character'));
 $('empty-add').addEventListener('click',()=>openModal('new-character'));
 document.querySelectorAll('[data-depth]').forEach(b=>b.addEventListener('click',()=>{project.settings.depth=b.dataset.depth;queueSave();refresh();if(project.settings.depth==='all')setTimeout(fitMap,500);}));
@@ -535,14 +622,21 @@ window.addEventListener('keydown',ev=>{
   const isInput=['INPUT','TEXTAREA','SELECT'].includes(document.activeElement?.tagName);const meta=ev.ctrlKey||ev.metaKey;
   if(meta&&ev.key.toLowerCase()==='z'){ev.preventDefault();if(ev.shiftKey)redo();else undo();return;}
   if(meta&&ev.key.toLowerCase()==='y'){ev.preventDefault();redo();return;}
-  if(ev.key==='Escape'){if(!$('modal-backdrop').classList.contains('hidden')){closeModal();return;}searchResults.classList.add('hidden');return;}
+  if(ev.key==='Escape'){
+    if(!$('modal-backdrop').classList.contains('hidden')){closeModal();return;}
+    if(rosterOpen){ev.preventDefault();closeRoster(true);return;}
+    if(!searchResults.classList.contains('hidden')){searchResults.classList.add('hidden');search.blur();return;}
+    if(!isInput){clearSelection();return;}
+    return;
+  }
+  if(ev.key.toLowerCase()==='r'&&!isInput&&!meta&&$('modal-backdrop').classList.contains('hidden')){ev.preventDefault();rosterOpen?closeRoster(true):openRoster();return;}
   if(ev.key==='/'&&!isInput&&$('modal-backdrop').classList.contains('hidden')){ev.preventDefault();search.focus();return;}
   if(ev.key==='+'&&!isInput&&$('modal-backdrop').classList.contains('hidden')){ev.preventDefault();openModal('new-character');}
 });
 
 // MODALS + ACTIONS
 function openModal(kind,context={}){
-  endInlineEdit();modalKind=kind;modalContext=context;const set=(title,html,submit='Save',eyebrow='WORLD EDITOR')=>{$('modal-title').textContent=title;$('modal-eyebrow').textContent=eyebrow;$('modal-fields').innerHTML=html;$('modal-submit').textContent=submit;$('modal-submit').classList.remove('hidden');$('modal-cancel').textContent='Cancel';};
+  closeRoster();endInlineEdit();modalKind=kind;modalContext=context;const set=(title,html,submit='Save',eyebrow='WORLD EDITOR')=>{$('modal-title').textContent=title;$('modal-eyebrow').textContent=eyebrow;$('modal-fields').innerHTML=html;$('modal-submit').textContent=submit;$('modal-submit').classList.remove('hidden');$('modal-cancel').textContent='Cancel';};
   switch(kind){
     case 'new-character':set('New character',`<p class="modal-desc">One name is all you need. You can fill in the rest whenever you like.</p><label class="field-label" for="modal-name">NAME</label><input id="modal-name" name="name" class="field-input name-input" maxlength="180" required placeholder="Who’s joining the world?" autocomplete="off"/>`,'Add character');break;
     case 'new-relationship':{
@@ -562,8 +656,8 @@ function openModal(kind,context={}){
     case 'character-actions':{
       const c=roster(context.id);set(c?.name||'Character',`<p class="modal-desc">Quick actions for this character.</p><div class="modal-options"><button type="button" class="secondary-button" id="action-duplicate">⧉ Duplicate character</button><button type="button" class="secondary-button" id="action-connect">↗ Add connection</button><button type="button" class="secondary-button" id="action-focus">◎ Focus here</button></div>`,'Close');break;
     }
-    case 'help':set('How to explore',`<div class="modal-preview"><b>Click a character</b> to center their connections and edit their details.<br><b>Shift-click a different visible character</b> to connect them with the currently centered one.<br><b>Click a line</b> to inspect or edit a relationship.<br><b>Drag the background</b> to pan; <b>scroll</b> to zoom. On touch screens, <b>drag with one finger</b> to pan and <b>pinch with two fingers</b> to zoom. Use <b>◎</b> to fit immediate connections and <b>⤢</b> to fit everything visible.<br><b>Double-click blank space</b> to add someone.<br><b>Drag a portrait</b> into a character profile.<br><b>Search</b> reaches everyone, even those outside the current view.<br><b>1 step / 2 steps / Everyone</b> controls the visible neighborhood.</div><p class="modal-desc"><b>Shortcuts:</b> Shift-click Connect · / Search · + New character · Ctrl/⌘ Z Undo · Ctrl/⌘ Shift Z Redo.</p><p class="modal-desc">Your edits save in this browser, not on a server. Export a backup regularly, particularly before resetting your browser.</p>`,'Close','YOUR GUIDE');break;
-    case 'about':set('Character Web 0.1.3',`<p class="modal-desc">An offline-first interactive relationship encyclopedia. This first build is a proof of the network, editing, and local project workflows.</p><div class="modal-preview"><b>Included:</b> editable people and links, aliases, groups, optional portraits, search, recentering, zoom, local autosave, undo/redo, import/export.<br><b>Planned, not yet included:</b> full wiki linking, network analysis, timeline history, spoiler-safe publishing, ThreadWriter integration.</div><p class="modal-desc">This build has no external dependencies, account requirement, or network requests. New visitors begin with an empty world; projects stay in the browser unless exported.</p>`,'Close','ABOUT THIS PROTOTYPE');break;
+    case 'help':set('How to explore',`<div class="modal-preview"><b>Click a character</b> to center their connections and edit their details.<br><b>Shift-click a different visible character</b> to connect them with the currently centered one.<br><b>Click a line</b> to inspect or edit a relationship.<br><b>Drag the background</b> to pan; <b>scroll</b> to zoom. On touch screens, <b>drag with one finger</b> to pan and <b>pinch with two fingers</b> to zoom. Use <b>◎</b> to fit immediate connections and <b>⤢</b> to fit everything visible.<br><b>Double-click blank space</b> to add someone.<br><b>Drag a portrait</b> into a character profile.<br><b>Roster</b> opens the complete alphabetical list, sortable by contact count, with an option to show only unconnected characters.<br><b>Click or tap blank map space</b>, use the <b>× Clear</b> button, or press <b>Esc</b> to deselect without changing the centered neighborhood.<br><b>Search</b> reaches everyone, even those outside the current view.<br><b>1 step / 2 steps / Everyone</b> controls the visible neighborhood.</div><p class="modal-desc"><b>Shortcuts:</b> Shift-click Connect · R Roster · Esc Clear selection / close roster · / Search · + New character · Ctrl/⌘ Z Undo · Ctrl/⌘ Shift Z Redo.</p><p class="modal-desc">Your edits save in this browser, not on a server. Export a backup regularly, particularly before resetting your browser.</p>`,'Close','YOUR GUIDE');break;
+    case 'about':set('Character Web 0.1.4',`<p class="modal-desc">An offline-first interactive relationship encyclopedia. This first build is a proof of the network, editing, and local project workflows.</p><div class="modal-preview"><b>Included:</b> editable people and links, aliases, groups, optional portraits, search, recentering, zoom, local autosave, undo/redo, import/export.<br><b>Planned, not yet included:</b> full wiki linking, network analysis, timeline history, spoiler-safe publishing, ThreadWriter integration.</div><p class="modal-desc">This build has no external dependencies, account requirement, or network requests. New visitors begin with an empty world; projects stay in the browser unless exported.</p>`,'Close','ABOUT THIS PROTOTYPE');break;
   }
   $('modal-backdrop').classList.remove('hidden');
   if(['about','help','character-actions'].includes(kind)){$('modal-submit').textContent='Close';$('modal-cancel').classList.add('hidden');}else $('modal-cancel').classList.remove('hidden');

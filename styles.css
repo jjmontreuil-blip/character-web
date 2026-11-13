@@ -95,3 +95,66 @@
   .workspace.mobile-details-open .canvas-label,
   .workspace.mobile-details-open .large-map-hint{display:none}
 }
+
+/* 0.1.4: searchable character roster and independent selection state. */
+.roster-button{display:inline-flex;align-items:center;justify-content:center;gap:7px;height:43px;padding:0 13px;background:#1c2d40d9;border:1px solid #425e74;border-radius:10px;color:#e3f1f6;font-weight:730;font-size:12px;white-space:nowrap;box-shadow:0 5px 20px #060b1a35}
+.roster-button>span:first-child{font-size:19px;line-height:1}
+.roster-button:hover:not(:disabled){background:#2b475e;border-color:#79b6c5}
+.clear-selection-button{color:#bacbda;background:#192636d9}
+.clear-selection-button>span:first-child{font-size:22px}
+.roster-scrim{position:absolute;inset:0 0 53px;z-index:7;background:#050b16aa;backdrop-filter:blur(2px)}
+.graph-toolbar{z-index:9}
+.roster-drawer{position:absolute;z-index:11;left:24px;top:75px;bottom:75px;width:min(408px,calc(100% - 48px));display:flex;flex-direction:column;min-height:0;background:linear-gradient(160deg,#1b2c40,#132033);border:1px solid #4a6c84;border-radius:15px;box-shadow:0 16px 55px #000b;overflow:hidden}
+.roster-drawer-header{padding:18px 18px 11px;display:flex;align-items:center;justify-content:space-between;gap:14px}
+.roster-drawer-header h2{font-size:20px;letter-spacing:-.55px;margin:4px 0 0}
+.roster-drawer-header .icon-button{flex:none}
+.roster-summary{margin:0 18px 12px;color:#a6c3d4;font-size:12px}
+.roster-search-input{margin:0 18px 10px;width:calc(100% - 36px);min-height:41px;border:1px solid #53758c;background:#0d1c2e;color:var(--text);border-radius:9px;padding:8px 12px;font-size:14px}
+.roster-search-input::placeholder{color:#90a8bd}
+.roster-filter-row{display:flex;align-items:center;justify-content:space-between;gap:9px;margin:0 18px 12px;flex-wrap:wrap}
+.roster-select{background:#23394e;color:#e1edf5;border:1px solid #4b6980;border-radius:8px;padding:8px 10px;font-size:12px;max-width:100%;min-height:39px}
+.roster-unlinked{font-size:12px;color:#d2e0eb;display:flex;gap:7px;align-items:center;cursor:pointer;min-height:39px}
+.roster-unlinked input{accent-color:#52d1da;width:17px;height:17px}
+.roster-list{min-height:0;flex:1;overflow-y:auto;overscroll-behavior:contain;border-top:1px solid #334c62;border-bottom:1px solid #334c62;-webkit-overflow-scrolling:touch}
+.roster-entry{display:flex;align-items:center;gap:10px;width:100%;text-align:left;padding:11px 17px;min-height:54px;background:transparent;border-bottom:1px solid #30465c;color:#eaf4fb}
+.roster-entry:hover,.roster-entry:focus-visible{background:#2b465d}
+.roster-entry.is-current{background:#234558}
+.roster-entry.is-current:hover{background:#2c5c6d}
+.roster-entry-main{flex:1;min-width:0;display:flex;flex-direction:column;gap:3px}
+.roster-entry-main strong{font-size:13px;font-weight:710;overflow-wrap:anywhere}
+.roster-entry-main small{font-size:11px;color:#92acc0;line-height:1.4;overflow-wrap:anywhere}
+.roster-entry-count{font-size:11px;color:#a9c5d7;white-space:nowrap;text-align:right}
+.roster-entry-count.is-zero{color:#eec6a0}
+.roster-current{color:#8de6ec;font-size:18px;flex:none}
+.roster-empty{padding:25px 18px;color:#afc3d3;font-size:13px;line-height:1.5;text-align:center}
+.roster-footnote{padding:11px 18px 14px;margin:0;font-size:11px;line-height:1.45;color:#8aa8bc}
+.detail-header-actions{display:flex;align-items:center;gap:8px}
+.clear-panel-action{font-size:22px;line-height:1;min-width:30px;min-height:30px;display:inline-flex;align-items:center;justify-content:center}
+.empty-inspect{margin-top:18px}
+@media(max-width:1080px){.roster-drawer{left:16px;width:min(400px,calc(100% - 32px))}}
+@media(max-width:760px){
+  .graph-toolbar .search-wrap{min-width:0}
+  .roster-button{flex:none;width:39px;height:38px;padding:0}
+  .roster-button-label{display:none}
+  .roster-scrim{bottom:48px;background:#050b16bc}
+  .roster-drawer{left:10px;right:10px;top:57px;bottom:59px;width:auto;border-radius:12px}
+  .roster-drawer-header{padding:12px 13px 9px}
+  .roster-drawer-header h2{font-size:18px}
+  .roster-summary{margin:0 13px 9px}
+  .roster-search-input{margin:0 13px 9px;width:calc(100% - 26px);font-size:16px;min-height:40px}
+  .roster-filter-row{margin:0 13px 9px;gap:5px}
+  .roster-select{font-size:11px;padding:7px}
+  .roster-unlinked{font-size:11px;gap:4px}
+  .roster-entry{min-height:49px;padding:9px 13px}
+  .roster-footnote{padding:9px 13px;font-size:10px}
+  .detail-header-actions{gap:4px}
+}
+@media(max-width:400px){.graph-toolbar{gap:6px}.roster-button{width:36px}.roster-filter-row{flex-direction:column;align-items:stretch}.roster-select{width:100%}}
+
+/* Keep Roster discoverable as text on touch devices, rather than only a cryptic icon. */
+@media(max-width:760px){
+ .graph-toolbar #open-roster{width:73px;gap:5px;font-size:11px}
+ .graph-toolbar #open-roster .roster-button-label{display:inline}
+ .graph-toolbar #clear-selection{width:36px}
+}
+@media(max-width:400px){.graph-toolbar #open-roster{width:69px;font-size:10px}}

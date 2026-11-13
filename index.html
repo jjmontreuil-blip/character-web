@@ -4,15 +4,15 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <meta name="theme-color" content="#0c111c" />
-  <title>Character Web • Prototype 0.1.3</title>
+  <title>Character Web • Prototype 0.1.4</title>
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
   <div id="app" class="app-shell">
     <header class="topbar">
-      <div class="brand" title="Character Web 0.1.3">
+      <div class="brand" title="Character Web 0.1.4">
         <span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
-        <div class="brand-text"><strong>Character Web</strong><small>PROTOTYPE 0.1.3</small></div>
+        <div class="brand-text"><strong>Character Web</strong><small>PROTOTYPE 0.1.4</small></div>
       </div>
       <span class="header-rule" aria-hidden="true"></span>
       <div class="project-name-wrap">
@@ -42,8 +42,31 @@
             <kbd>/</kbd>
             <div id="search-results" class="search-results hidden" role="listbox"></div>
           </div>
+          <button id="open-roster" class="roster-button" type="button" title="Open character roster (R)" aria-label="Open character roster" aria-expanded="false" aria-controls="roster-drawer"><span aria-hidden="true">☷</span><span class="roster-button-label">Roster</span></button>
+          <button id="clear-selection" class="roster-button clear-selection-button" type="button" title="Clear selection (Esc)" aria-label="Clear selection" disabled><span aria-hidden="true">×</span><span class="roster-button-label">Clear</span></button>
           <button id="add-character" class="primary-button"><span aria-hidden="true">＋</span><span>New character</span></button>
         </div>
+        <div id="roster-scrim" class="roster-scrim hidden" aria-hidden="true"></div>
+        <section id="roster-drawer" class="roster-drawer hidden" role="region" aria-labelledby="roster-title">
+          <div class="roster-drawer-header">
+            <div><span class="eyebrow">WORLD DIRECTORY</span><h2 id="roster-title">Character roster</h2></div>
+            <button id="close-roster" class="icon-button" type="button" aria-label="Close character roster" title="Close roster">×</button>
+          </div>
+          <p id="roster-summary" class="roster-summary"></p>
+          <label class="visually-hidden" for="roster-search">Search roster by name or alias</label>
+          <input id="roster-search" class="roster-search-input" type="search" autocomplete="off" placeholder="Find a character or alias…" />
+          <div class="roster-filter-row">
+            <label class="visually-hidden" for="roster-sort">Sort characters</label>
+            <select id="roster-sort" class="roster-select" aria-label="Sort characters">
+              <option value="az">Name (A–Z)</option>
+              <option value="most">Most contacts</option>
+              <option value="fewest">Fewest contacts</option>
+            </select>
+            <label class="roster-unlinked"><input type="checkbox" id="roster-unlinked" /> Unconnected only</label>
+          </div>
+          <div id="roster-list" class="roster-list" aria-label="Characters"></div>
+          <p id="roster-footnote" class="roster-footnote"></p>
+        </section>
         <section id="network-viewport" class="network-viewport" aria-label="Relationship map" tabindex="0">
           <div class="canvas-grid" aria-hidden="true"></div>
           <div id="graph-scene" class="graph-scene">

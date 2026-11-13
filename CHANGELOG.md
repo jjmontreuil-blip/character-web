@@ -1,5 +1,16 @@
 # Character Web changelog
 
+## 0.1.4 · Navigation & Roster
+
+- Added a searchable, scrollable roster covering all project characters, including off-screen and unconnected people.
+- Added alphabetical, most-contact, and fewest-contact sorting, plus an unconnected-only filter.
+- Counted unique neighbors rather than individual relationship records for roster contact counts.
+- Added direct roster-to-character recentering on desktop and mobile, plus R keyboard shortcut and Escape dismissal.
+- Added clearing a character/relationship selection by blank-canvas click/tap, Escape, or toolbar/panel × buttons, without changing the focused neighborhood.
+- Kept mobile detail-sheet visibility separate from selection and removed relationship highlight upon deselection.
+- Preserved schema v1 import/export and public-clean startup with no bundled story or character data.
+- Limited very large roster lists to the first 250 matches, with a visible explanation and search to narrow.
+
 ## 0.1.3 · Mobile & Touch
 
 - Implemented proper two-finger pinch-to-zoom and multi-touch panning, centered on the fingers
