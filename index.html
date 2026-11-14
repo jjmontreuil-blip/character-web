@@ -4,15 +4,15 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <meta name="theme-color" content="#0c111c" />
-  <title>Character Web • Prototype 0.1.4</title>
+  <title>Character Web • Prototype 0.1.5</title>
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
   <div id="app" class="app-shell">
     <header class="topbar">
-      <div class="brand" title="Character Web 0.1.4">
+      <div class="brand" title="Character Web 0.1.5">
         <span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
-        <div class="brand-text"><strong>Character Web</strong><small>PROTOTYPE 0.1.4</small></div>
+        <div class="brand-text"><strong>Character Web</strong><small>PROTOTYPE 0.1.5</small></div>
       </div>
       <span class="header-rule" aria-hidden="true"></span>
       <div class="project-name-wrap">
@@ -80,11 +80,25 @@
             <p>Add a character and watch the connections grow.</p>
             <button id="empty-add" class="primary-button">＋ Add your first character</button>
           </div>
+          <section id="layout-popover" class="layout-popover hidden" aria-label="Neighborhood layout controls">
+            <div class="layout-popover-head"><span class="eyebrow">NEIGHBORHOOD LAYOUT</span><button id="layout-close" class="layout-close" type="button" aria-label="Close layout controls">×</button></div>
+            <strong id="layout-focus-name">Current character</strong>
+            <p id="layout-mode-indicator" class="layout-status">Automatic arrangement</p>
+            <label class="layout-toggle"><input id="layout-enabled" type="checkbox"/><span>Use saved arrangement</span></label>
+            <div class="layout-actions">
+              <button id="layout-save" type="button" class="layout-action primary">Save current</button>
+              <button id="layout-restore" type="button" class="layout-action">Restore saved</button>
+              <button id="layout-reshuffle" type="button" class="layout-action">↻ Reshuffle</button>
+            </div>
+            <p id="layout-saved-count" class="layout-count"></p>
+            <p class="layout-help">Saved positions are specific to this character. Switching to Automatic or reshuffling never erases your snapshot. Dragging nodes does not overwrite it until you save again.</p>
+          </section>
           <div class="canvas-controls" aria-label="Map controls">
             <button id="zoom-in" class="canvas-control" title="Zoom in" aria-label="Zoom in">＋</button>
             <button id="zoom-out" class="canvas-control" title="Zoom out" aria-label="Zoom out">−</button>
             <button id="fit-neighborhood" class="canvas-control" title="Fit immediate neighbors" aria-label="Fit immediate neighbors">◎</button>
             <button id="fit-map" class="canvas-control" title="Fit all visible characters" aria-label="Fit all visible characters">⤢</button>
+            <button id="layout-menu-button" class="canvas-control layout-control-button" title="Neighborhood layouts" aria-label="Neighborhood layouts" aria-controls="layout-popover" aria-expanded="false">▦</button>
           </div>
           <div class="canvas-hint" id="canvas-hint">Click to explore · Shift-click to connect · Scroll to zoom</div>
           <div id="large-map-hint" class="large-map-hint hidden" role="status"></div>

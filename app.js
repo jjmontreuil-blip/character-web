@@ -1,4 +1,4 @@
-/* Character Web 0.1.4. Offline, local-first, dependency-free prototype. */
+/* Character Web 0.1.5. Offline, local-first, dependency-free prototype. */
 (() => {
 'use strict';
 const $ = id => document.getElementById(id);
@@ -23,6 +23,7 @@ let modalKind=null,modalContext={};
 let visibleIds=[],visibleDistances=new Map(),targetPositions=new Map(),positions=new Map(),nodeElements=new Map(),edgeElements=[];
 let raf=null,layoutActivity=0,camera={panX:0,panY:0,scale:1};
 let pointer=null,photoTarget=null,toastTimeouts=[];
+let layoutMenuOpen=false;
 const activeTouches=new Map();
 let touchGesture=null,suppressTouchClickUntil=0;
 const viewport=$('network-viewport'),scene=$('graph-scene'),nodesLayer=$('node-layer'),edgesLayer=$('edge-layer');
@@ -88,7 +89,26 @@ function validateImported(raw){
     let id=typeof r.id==='string'&&r.id?r.id:uid();if(relationshipIds.has(id))id=uid();relationshipIds.add(id);
     return {id,source:r.source,target:r.target,type:String(r.type||'Connection').slice(0,150),description:String(r.description||'').slice(0,150000),direction:['forward','reverse'].includes(r.direction)?r.direction:'mutual',notes:String(r.notes||'').slice(0,150000),visibility:r.visibility==='public'?'public':'author'};
   });
-  return {schemaVersion:1,id:String(raw.id||uid()),name:String(raw.name||'Untitled world').slice(0,180),description:String(raw.description||''),createdAt:raw.createdAt||new Date().toISOString(),updatedAt:raw.updatedAt||new Date().toISOString(),characters,relationships,settings:{depth:['1','2','all'].includes(String(raw.settings?.depth))?String(raw.settings.depth):'1',namesOnly:!!raw.settings?.namesOnly}};
+  // Optional v0.1.5 layouts retain schema version 1 and are validated separately.
+  // Older project backups without this property import as automatic layouts.
+  const layouts=Object.create(null);
+  const rawLayouts=raw.layouts&&typeof raw.layouts==='object'&&!Array.isArray(raw.layouts)?raw.layouts:{};
+  let totalLayoutNodes=0;
+  for(const c of characters){
+    if(!Object.prototype.hasOwnProperty.call(rawLayouts,c.id))continue;
+    const entry=rawLayouts[c.id];
+    if(!entry||typeof entry!=='object'||!entry.positions||typeof entry.positions!=='object'||Array.isArray(entry.positions))continue;
+    const points=Object.create(null);
+    for(const id of Object.keys(entry.positions)){
+      if(!ids.has(id)||totalLayoutNodes>=150000)continue;
+      const pt=entry.positions[id];
+      if(!pt||!Number.isFinite(pt.x)||!Number.isFinite(pt.y)||Math.abs(pt.x)>50000||Math.abs(pt.y)>50000)continue;
+      Object.defineProperty(points,id,{value:{x:pt.x,y:pt.y},writable:true,configurable:true,enumerable:true});
+      totalLayoutNodes++;
+    }
+    if(Object.keys(points).length)Object.defineProperty(layouts,c.id,{value:{enabled:entry.enabled===true,positions:points},writable:true,configurable:true,enumerable:true});
+  }
+  return {schemaVersion:1,id:String(raw.id||uid()),name:String(raw.name||'Untitled world').slice(0,180),description:String(raw.description||''),createdAt:raw.createdAt||new Date().toISOString(),updatedAt:raw.updatedAt||new Date().toISOString(),characters,relationships,layouts,settings:{depth:['1','2','all'].includes(String(raw.settings?.depth))?String(raw.settings.depth):'1',namesOnly:!!raw.settings?.namesOnly}};
 }
 function commit(mutator){
   endInlineEdit();const before=JSON.stringify(project);mutator();if(JSON.stringify(project)===before)return;
@@ -100,11 +120,11 @@ function endInlineEdit(){
   }
   inputSnapshot=null;
 }
-function undo(){endInlineEdit();if(!undoStack.length)return;redoStack.push(JSON.stringify(project));project=JSON.parse(undoStack.pop());ensureValidSelection();queueSave();refresh();toast('Undone');}
-function redo(){endInlineEdit();if(!redoStack.length)return;undoStack.push(JSON.stringify(project));project=JSON.parse(redoStack.pop());ensureValidSelection();queueSave();refresh();toast('Redone');}
+function undo(){endInlineEdit();if(!undoStack.length)return;const oldLayout=JSON.stringify(project.layouts?.[focusId]||null);redoStack.push(JSON.stringify(project));project=JSON.parse(undoStack.pop());ensureValidSelection();queueSave();refresh({restoreSaved:oldLayout!==JSON.stringify(project.layouts?.[focusId]||null)});toast('Undone');}
+function redo(){endInlineEdit();if(!redoStack.length)return;const oldLayout=JSON.stringify(project.layouts?.[focusId]||null);undoStack.push(JSON.stringify(project));project=JSON.parse(redoStack.pop());ensureValidSelection();queueSave();refresh({restoreSaved:oldLayout!==JSON.stringify(project.layouts?.[focusId]||null)});toast('Redone');}
 function ensureValidSelection(){if(focusId&&!roster(focusId))focusId=project.characters[0]?.id||null;if(!focusId)focusId=project.characters[0]?.id||null;if(selection?.kind==='character'&&!roster(selection.id))selection=null;if(selection?.kind==='relationship'&&!edgeById(selection.id))selection=null;}
-function freshProject(name){return {schemaVersion:1,id:uid(),name,description:'',createdAt:new Date().toISOString(),updatedAt:new Date().toISOString(),characters:[],relationships:[],settings:{depth:'1',namesOnly:false}};}
-function resetProject(data){endInlineEdit();project=validateImported(data);undoStack=[];redoStack=[];positions.clear();camera={panX:0,panY:0,scale:window.innerWidth<=760?.85:1};focusId=project.characters[0]?.id||null;selection=focusId?{kind:'character',id:focusId}:null;queueSave();refresh();}
+function freshProject(name){return {schemaVersion:1,id:uid(),name,description:'',createdAt:new Date().toISOString(),updatedAt:new Date().toISOString(),characters:[],relationships:[],layouts:{},settings:{depth:'1',namesOnly:false}};}
+function resetProject(data){endInlineEdit();project=validateImported(data);undoStack=[];redoStack=[];positions.clear();camera={panX:0,panY:0,scale:window.innerWidth<=760?.85:1};focusId=project.characters[0]?.id||null;selection=focusId?{kind:'character',id:focusId}:null;queueSave();refresh({restoreSaved:true});closeLayoutMenu();}
 
 // GRAPH + LAYOUT
 function visibleNeighborhood(){
@@ -129,13 +149,33 @@ function calculateTargets(){
     list.forEach((id,i)=>{const angle=stagger+(i/n)*Math.PI*2;targetPositions.set(id,{x:Math.cos(angle)*ring,y:Math.sin(angle)*ring});});
   }
 }
-function recalcScene(){
+function savedNeighborhood(){
+  const entry=project?.layouts?.[focusId];
+  return entry&&entry.enabled&&entry.positions?entry:null;
+}
+function isSavedNode(id){return !!savedNeighborhood()?.positions?.[id];}
+function stopLayout(){if(raf){cancelAnimationFrame(raf);raf=null;}}
+function recalcScene({restoreSaved=false}={}){
+  stopLayout();
   const {ids,dist}=visibleNeighborhood();visibleIds=ids;visibleDistances=dist;
   const currentFocus=positions.get(focusId);if(currentFocus){const offsetX=currentFocus.x,offsetY=currentFocus.y;for(const p of positions.values()){p.x-=offsetX;p.y-=offsetY;}}
+  if(restoreSaved){
+    const saved=savedNeighborhood();
+    if(saved){
+      const current=new Set(visibleIds);
+      for(const [id,p] of Object.entries(saved.positions)){
+        if(!current.has(id)||id===focusId)continue;
+        positions.set(id,{x:p.x,y:p.y,vx:0,vy:0});
+      }
+      // New neighbors must adapt around the saved constellation instead of
+      // inheriting unrelated coordinates from another character's neighborhood.
+      for(const id of visibleIds)if(id!==focusId&&!saved.positions[id])positions.delete(id);
+    }
+  }
   calculateTargets();
   for(const id of visibleIds){if(!positions.has(id)){const t=targetPositions.get(id)||{x:0,y:0};positions.set(id,{x:t.x+(Math.random()-.5)*65,y:t.y+(Math.random()-.5)*65,vx:0,vy:0});}}
   for(const id of [...positions.keys()])if(!project.characters.some(c=>c.id===id))positions.delete(id);
-  renderGraphNodes();renderGraphEdges();layoutActivity=0;startLayout();
+  renderGraphNodes();renderGraphEdges();layoutActivity=0;startLayout();updateLayoutMenu();
 }
 function makeSvg(type,attrs){const e=document.createElementNS(NS,type);for(const [key,value] of Object.entries(attrs||{}))e.setAttribute(key,String(value));return e;}
 // Keep a single connection strand per *direction*, not one per relationship record.
@@ -230,6 +270,7 @@ function layoutFrame(){
   for(let i=0;i<ids.length;i++){
     const id=ids[i],p=list[i],goal=targetPositions.get(id);if(!p||!goal)continue;
     if(id===focusId){p.x=0;p.y=0;p.vx=0;p.vy=0;continue;}
+    if(isSavedNode(id)){p.vx=0;p.vy=0;continue;}
     p.vx+=(goal.x-p.x)*.024;p.vy+=(goal.y-p.y)*.024;
   }
   // A limited collision/repulsion pass avoids the hairball effect without a heavy library.
@@ -241,12 +282,12 @@ function layoutFrame(){
       const dx=b.x-a.x,dy=b.y-a.y,d2=dx*dx+dy*dy;
       const min=ids[i]===focusId||ids[j]===focusId?175:137;
       if(d2<min*min){const dist=Math.max(1,Math.sqrt(d2));const push=(min-dist)*.024;const vx=dx/dist*push,vy=dy/dist*push;
-        if(ids[i]!==focusId){a.vx-=vx;a.vy-=vy;}if(ids[j]!==focusId){b.vx+=vx;b.vy+=vy;}
+        if(ids[i]!==focusId&&!isSavedNode(ids[i])){a.vx-=vx;a.vy-=vy;}if(ids[j]!==focusId&&!isSavedNode(ids[j])){b.vx+=vx;b.vy+=vy;}
       }
     }
   }
   for(let i=0;i<ids.length;i++){
-    const p=list[i];if(!p||ids[i]===focusId)continue;
+    const p=list[i];if(!p||ids[i]===focusId||isSavedNode(ids[i]))continue;
     p.vx*=.74;p.vy*=.74;p.x+=p.vx;p.y+=p.vy;moving+=Math.abs(p.vx)+Math.abs(p.vy);
   }
   updatePositions();
@@ -280,7 +321,7 @@ function fitNeighborhood(){
   const near=visibleIds.filter(id=>(visibleDistances.get(id)??99)<=1);
   fitToIds(near,'Immediate connections fitted');
 }
-function selectCharacter(id){if(!roster(id))return;endInlineEdit();focusId=id;selection={kind:'character',id};camera.panX=0;camera.panY=0;camera.scale=window.innerWidth<=760?.85:1;applyCamera();recalcScene();renderPanel();}
+function selectCharacter(id){if(!roster(id))return;endInlineEdit();closeLayoutMenu();focusId=id;selection={kind:'character',id};camera.panX=0;camera.panY=0;camera.scale=window.innerWidth<=760?.85:1;applyCamera();recalcScene({restoreSaved:true});renderPanel();}
 function clearSelection(){
   if(!selection)return;
   endInlineEdit();selection=null;renderPanel();renderGraphEdges();
@@ -289,9 +330,109 @@ function updateClearSelectionButton(){
   $('clear-selection').disabled=!selection;
   $('clear-selection').setAttribute('aria-label',selection?'Clear selection':'Nothing selected');
 }
-function refresh(){ensureValidSelection();$('project-name').textContent=project.name;$('roster-count').textContent=`${project.characters.length} people · ${project.relationships.length} relationships`;
-  $('names-only').checked=project.settings.namesOnly;document.querySelectorAll('[data-depth]').forEach(b=>b.classList.toggle('active',b.dataset.depth===project.settings.depth));updateUndoButtons();recalcScene();renderPanel();renderRoster();applyCamera();}
+function refresh({restoreSaved=false}={}){ensureValidSelection();$('project-name').textContent=project.name;$('roster-count').textContent=`${project.characters.length} people · ${project.relationships.length} relationships`;
+  $('names-only').checked=project.settings.namesOnly;document.querySelectorAll('[data-depth]').forEach(b=>b.classList.toggle('active',b.dataset.depth===project.settings.depth));updateUndoButtons();recalcScene({restoreSaved});renderPanel();renderRoster();applyCamera();}
 function updateUndoButtons(){$('undo-button').disabled=!undoStack.length;$('redo-button').disabled=!redoStack.length;}
+
+// SAVED NEIGHBORHOOD LAYOUTS
+// Snapshot coordinates are relative to the centered character, never the screen.
+// Saving is explicit; moving a node does not overwrite a saved arrangement.
+function updateLayoutMenu(){
+  const entry=focusId?project?.layouts?.[focusId]:null;
+  const hasSaved=!!entry&&Object.keys(entry.positions||{}).length>0;
+  const active=hasSaved&&entry.enabled;
+  const button=$('layout-menu-button');
+  button.disabled=!focusId;
+  button.classList.toggle('has-saved-layout',hasSaved);
+  button.classList.toggle('is-layout-active',active);
+  button.title=active?'Saved neighborhood layout active':hasSaved?'Saved layout available; automatic mode':'Neighborhood layouts';
+  $('layout-focus-name').textContent=roster(focusId)?.name||'No character selected';
+  $('layout-mode-indicator').textContent=active?'Saved arrangement active':hasSaved?'Automatic arrangement · snapshot kept':'Automatic arrangement · no snapshot yet';
+  $('layout-mode-indicator').classList.toggle('is-saved',active);
+  $('layout-enabled').checked=!!active;
+  $('layout-enabled').disabled=!hasSaved;
+  $('layout-restore').disabled=!hasSaved;
+  $('layout-save').disabled=!focusId;
+  $('layout-reshuffle').disabled=!focusId;
+  $('layout-saved-count').textContent=hasSaved?`${Object.keys(entry.positions).length} saved positions for this character`:'Save a layout to remember this arrangement.';
+}
+function openLayoutMenu(){
+  if(!focusId)return;
+  closeRoster();layoutMenuOpen=true;
+  $('layout-popover').classList.remove('hidden');
+  $('layout-menu-button').setAttribute('aria-expanded','true');
+  updateLayoutMenu();
+}
+function closeLayoutMenu(){
+  layoutMenuOpen=false;
+  $('layout-popover').classList.add('hidden');
+  $('layout-menu-button').setAttribute('aria-expanded','false');
+}
+function saveCurrentLayout(){
+  if(!focusId)return;
+  stopLayout();
+  const id=focusId,existing=project.layouts?.[id]?.positions||{};
+  const snapshot=Object.assign(Object.create(null),clone(existing));
+  snapshot[id]={x:0,y:0};
+  for(const nodeId of visibleIds){
+    const p=positions.get(nodeId);
+    if(p&&Number.isFinite(p.x)&&Number.isFinite(p.y)){
+      snapshot[nodeId]={x:Math.round(p.x*100)/100,y:Math.round(p.y*100)/100};
+    }
+  }
+  commit(()=>{if(!project.layouts)project.layouts={};
+    project.layouts[id]={enabled:true,positions:snapshot};
+  });
+  toast(`Saved ${roster(id)?.name||'character'}'s neighborhood`);
+}
+function restoreSavedLayout(){
+  if(!project.layouts?.[focusId])return;
+  if(!project.layouts[focusId].enabled){
+    commit(()=>{project.layouts[focusId].enabled=true;});
+  }
+  recalcScene({restoreSaved:true});
+  toast('Saved neighborhood restored');
+}
+function randomizeLayoutTargets(){
+  targetPositions=new Map([[focusId,{x:0,y:0}]]);
+  const byLevel=new Map();
+  for(const id of visibleIds){if(id===focusId)continue;
+    const lvl=visibleDistances.get(id);
+    if(!byLevel.has(lvl))byLevel.set(lvl,[]);
+    byLevel.get(lvl).push(id);
+  }
+  for(const [lvl,list] of byLevel){
+    for(let i=list.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[list[i],list[j]]=[list[j],list[i]];}
+    const n=list.length,ring=lvl===1?Math.max(165,Math.min(355,n*19+110)):lvl===2?Math.max(345,Math.min(690,n*24+180)):lvl===99?Math.max(570,n*25):Math.min(1000,440+lvl*155);
+    const stagger=-Math.PI/2+Math.random()*.7;
+    list.forEach((id,i)=>{const angle=stagger+(i/n)*Math.PI*2;
+      targetPositions.set(id,{x:Math.cos(angle)*ring,y:Math.sin(angle)*ring});
+    });
+  }
+  layoutActivity=0;startLayout();
+}
+function setSavedLayoutEnabled(enabled){
+  const entry=project.layouts?.[focusId];if(!entry)return;
+  if(entry.enabled===enabled)return;
+  commit(()=>{project.layouts[focusId].enabled=enabled;});
+  if(enabled)recalcScene({restoreSaved:true});
+  else randomizeLayoutTargets();
+  toast(enabled?'Saved arrangement restored':'Automatic layout active; saved snapshot kept');
+}
+function reshuffleLayout(){
+  if(!focusId)return;
+  const entry=project.layouts?.[focusId];
+  if(entry?.enabled)commit(()=>{project.layouts[focusId].enabled=false;});
+  stopLayout();randomizeLayoutTargets();
+  toast('New automatic arrangement; saved snapshot kept');
+}
+$('layout-enabled').addEventListener('change',ev=>setSavedLayoutEnabled(ev.target.checked));
+$('layout-save').addEventListener('click',saveCurrentLayout);
+$('layout-restore').addEventListener('click',restoreSavedLayout);
+$('layout-reshuffle').addEventListener('click',reshuffleLayout);
+document.addEventListener('pointerdown',ev=>{
+  if(layoutMenuOpen&&!ev.target.closest('#layout-popover,#layout-menu-button'))closeLayoutMenu();
+});
 
 // GRAPH INTERACTIONS
 function startNodeDrag(ev){
@@ -301,7 +442,7 @@ function startNodeDrag(ev){
   pointer={mode:'node',id,shift:ev.shiftKey,startX:ev.clientX,startY:ev.clientY,lastX:ev.clientX,lastY:ev.clientY,moved:false};ev.currentTarget.classList.add('is-dragging');
 }
 viewport.addEventListener('pointerdown',ev=>{
-  if(ev.pointerType==='touch'||ev.button!==0||ev.target.closest('.network-node')||ev.target.closest('.canvas-controls'))return;
+  if(ev.pointerType==='touch'||ev.button!==0||ev.target.closest('.network-node')||ev.target.closest('.canvas-controls,.layout-popover'))return;
   if(ev.target.closest('.edge-hit'))return;
   pointer={mode:'pan',startX:ev.clientX,startY:ev.clientY,lastX:ev.clientX,lastY:ev.clientY,moved:false};
 });
@@ -326,7 +467,7 @@ window.addEventListener('pointerup',ev=>{
       openModal('new-relationship',{source:focusId,target:p.id});
     }else selectCharacter(p.id);
   }
-  else if(p.mode==='node'){const pos=positions.get(p.id);if(pos){targetPositions.set(p.id,{x:pos.x,y:pos.y});startLayout();}}
+  else if(p.mode==='node'){const pos=positions.get(p.id);if(pos){targetPositions.set(p.id,{x:pos.x,y:pos.y});startLayout();updateLayoutMenu();}}
   else if(p.mode==='pan'&&!p.moved){clearSelection();}
 });
 window.addEventListener('pointercancel',ev=>{
@@ -341,7 +482,7 @@ function touchGeometry(){
   const [a,b]=values;return {centerX:(a.x+b.x)/2,centerY:(a.y+b.y)/2,distance:Math.max(1,Math.hypot(a.x-b.x,a.y-b.y))};
 }
 viewport.addEventListener('pointerdown',ev=>{
-  if(ev.pointerType!=='touch'||ev.target.closest('.canvas-controls,.empty-network'))return;
+  if(ev.pointerType!=='touch'||ev.target.closest('.canvas-controls,.empty-network,.layout-popover'))return;
   ev.preventDefault();ev.stopPropagation();
   activeTouches.set(ev.pointerId,{x:ev.clientX,y:ev.clientY});
   try{viewport.setPointerCapture(ev.pointerId);}catch(_){}
@@ -399,11 +540,13 @@ window.addEventListener('pointerup',ev=>finishTouch(ev));
 window.addEventListener('pointercancel',ev=>finishTouch(ev,true));
 window.addEventListener('blur',()=>{activeTouches.clear();touchGesture=null;pointer=null;});
 viewport.addEventListener('wheel',ev=>{ev.preventDefault();zoomAt(ev.deltaY<0?1.1:1/1.1,ev.clientX,ev.clientY);},{passive:false});
-viewport.addEventListener('dblclick',ev=>{if(ev.pointerType==='touch'||ev.target.closest('.network-node')||ev.target.closest('.edge-hit'))return;openModal('new-character');});
+viewport.addEventListener('dblclick',ev=>{if(ev.pointerType==='touch'||ev.target.closest('.network-node,.layout-popover,.canvas-controls')||ev.target.closest('.edge-hit'))return;openModal('new-character');});
 $('zoom-in').addEventListener('click',()=>{const r=viewport.getBoundingClientRect();zoomAt(1.2,r.left+r.width/2,r.top+r.height/2);});
 $('zoom-out').addEventListener('click',()=>{const r=viewport.getBoundingClientRect();zoomAt(1/1.2,r.left+r.width/2,r.top+r.height/2);});
 $('fit-map').addEventListener('click',fitMap);
 $('fit-neighborhood').addEventListener('click',fitNeighborhood);
+$('layout-menu-button').addEventListener('click',()=>layoutMenuOpen?closeLayoutMenu():openLayoutMenu());
+$('layout-close').addEventListener('click',closeLayoutMenu);
 window.addEventListener('resize',applyCamera);
 if(window.ResizeObserver)new ResizeObserver(applyCamera).observe(viewport);
 document.addEventListener('visibilitychange',()=>{if(!document.hidden&&visibleIds.length)startLayout();});
@@ -558,7 +701,7 @@ function renderRoster(){
   $('roster-footnote').textContent=filtered.length>maxRows?`Showing the first ${maxRows} of ${filtered.length} matches. Search to narrow the list.`:`${filtered.length} ${filtered.length===1?'character':'characters'} listed · Counts are distinct people, not relationship records.`;
 }
 function openRoster(){
-  if(rosterOpen)return;
+  closeLayoutMenu();if(rosterOpen)return;
   rosterOpen=true;
   $('roster-drawer').classList.remove('hidden');$('roster-scrim').classList.remove('hidden');
   $('open-roster').setAttribute('aria-expanded','true');
@@ -625,6 +768,7 @@ window.addEventListener('keydown',ev=>{
   if(ev.key==='Escape'){
     if(!$('modal-backdrop').classList.contains('hidden')){closeModal();return;}
     if(rosterOpen){ev.preventDefault();closeRoster(true);return;}
+    if(layoutMenuOpen){ev.preventDefault();closeLayoutMenu();$('layout-menu-button').focus();return;}
     if(!searchResults.classList.contains('hidden')){searchResults.classList.add('hidden');search.blur();return;}
     if(!isInput){clearSelection();return;}
     return;
@@ -636,7 +780,7 @@ window.addEventListener('keydown',ev=>{
 
 // MODALS + ACTIONS
 function openModal(kind,context={}){
-  closeRoster();endInlineEdit();modalKind=kind;modalContext=context;const set=(title,html,submit='Save',eyebrow='WORLD EDITOR')=>{$('modal-title').textContent=title;$('modal-eyebrow').textContent=eyebrow;$('modal-fields').innerHTML=html;$('modal-submit').textContent=submit;$('modal-submit').classList.remove('hidden');$('modal-cancel').textContent='Cancel';};
+  closeLayoutMenu();closeRoster();endInlineEdit();modalKind=kind;modalContext=context;const set=(title,html,submit='Save',eyebrow='WORLD EDITOR')=>{$('modal-title').textContent=title;$('modal-eyebrow').textContent=eyebrow;$('modal-fields').innerHTML=html;$('modal-submit').textContent=submit;$('modal-submit').classList.remove('hidden');$('modal-cancel').textContent='Cancel';};
   switch(kind){
     case 'new-character':set('New character',`<p class="modal-desc">One name is all you need. You can fill in the rest whenever you like.</p><label class="field-label" for="modal-name">NAME</label><input id="modal-name" name="name" class="field-input name-input" maxlength="180" required placeholder="Who’s joining the world?" autocomplete="off"/>`,'Add character');break;
     case 'new-relationship':{
@@ -656,8 +800,8 @@ function openModal(kind,context={}){
     case 'character-actions':{
       const c=roster(context.id);set(c?.name||'Character',`<p class="modal-desc">Quick actions for this character.</p><div class="modal-options"><button type="button" class="secondary-button" id="action-duplicate">⧉ Duplicate character</button><button type="button" class="secondary-button" id="action-connect">↗ Add connection</button><button type="button" class="secondary-button" id="action-focus">◎ Focus here</button></div>`,'Close');break;
     }
-    case 'help':set('How to explore',`<div class="modal-preview"><b>Click a character</b> to center their connections and edit their details.<br><b>Shift-click a different visible character</b> to connect them with the currently centered one.<br><b>Click a line</b> to inspect or edit a relationship.<br><b>Drag the background</b> to pan; <b>scroll</b> to zoom. On touch screens, <b>drag with one finger</b> to pan and <b>pinch with two fingers</b> to zoom. Use <b>◎</b> to fit immediate connections and <b>⤢</b> to fit everything visible.<br><b>Double-click blank space</b> to add someone.<br><b>Drag a portrait</b> into a character profile.<br><b>Roster</b> opens the complete alphabetical list, sortable by contact count, with an option to show only unconnected characters.<br><b>Click or tap blank map space</b>, use the <b>× Clear</b> button, or press <b>Esc</b> to deselect without changing the centered neighborhood.<br><b>Search</b> reaches everyone, even those outside the current view.<br><b>1 step / 2 steps / Everyone</b> controls the visible neighborhood.</div><p class="modal-desc"><b>Shortcuts:</b> Shift-click Connect · R Roster · Esc Clear selection / close roster · / Search · + New character · Ctrl/⌘ Z Undo · Ctrl/⌘ Shift Z Redo.</p><p class="modal-desc">Your edits save in this browser, not on a server. Export a backup regularly, particularly before resetting your browser.</p>`,'Close','YOUR GUIDE');break;
-    case 'about':set('Character Web 0.1.4',`<p class="modal-desc">An offline-first interactive relationship encyclopedia. This first build is a proof of the network, editing, and local project workflows.</p><div class="modal-preview"><b>Included:</b> editable people and links, aliases, groups, optional portraits, search, recentering, zoom, local autosave, undo/redo, import/export.<br><b>Planned, not yet included:</b> full wiki linking, network analysis, timeline history, spoiler-safe publishing, ThreadWriter integration.</div><p class="modal-desc">This build has no external dependencies, account requirement, or network requests. New visitors begin with an empty world; projects stay in the browser unless exported.</p>`,'Close','ABOUT THIS PROTOTYPE');break;
+    case 'help':set('How to explore',`<div class="modal-preview"><b>Click a character</b> to center their connections and edit their details.<br><b>Shift-click a different visible character</b> to connect them with the currently centered one.<br><b>Click a line</b> to inspect or edit a relationship.<br><b>Drag the background</b> to pan; <b>scroll</b> to zoom. On touch screens, <b>drag with one finger</b> to pan and <b>pinch with two fingers</b> to zoom. Use <b>◎</b> to fit immediate connections and <b>⤢</b> to fit everything visible.<br><b>Double-click blank space</b> to add someone.<br><b>Drag a portrait</b> into a character profile.<br><b>Roster</b> opens the complete alphabetical list, sortable by contact count, with an option to show only unconnected characters.<br><b>Click or tap blank map space</b>, use the <b>× Clear</b> button, or press <b>Esc</b> to deselect without changing the centered neighborhood.<br><b>Search</b> reaches everyone, even those outside the current view.<br><b>1 step / 2 steps / Everyone</b> controls the visible neighborhood.<br><b>▦ Layout</b> saves the current character's arrangement. Turn it off to resume automatic layout, reshuffle for a fresh arrangement, or restore your saved snapshot.</div><p class="modal-desc"><b>Shortcuts:</b> Shift-click Connect · R Roster · Esc Clear selection / close roster · / Search · + New character · Ctrl/⌘ Z Undo · Ctrl/⌘ Shift Z Redo.</p><p class="modal-desc">Your edits save in this browser, not on a server. Export a backup regularly, particularly before resetting your browser.</p>`,'Close','YOUR GUIDE');break;
+    case 'about':set('Character Web 0.1.5',`<p class="modal-desc">An offline-first interactive relationship encyclopedia. This first build is a proof of the network, editing, and local project workflows.</p><div class="modal-preview"><b>Included:</b> editable people and links, aliases, groups, optional portraits, search, recentering, zoom, local autosave, undo/redo, import/export.<br><b>Planned, not yet included:</b> full wiki linking, network analysis, timeline history, spoiler-safe publishing, ThreadWriter integration.</div><p class="modal-desc">This build has no external dependencies, account requirement, or network requests. New visitors begin with an empty world; projects stay in the browser unless exported.</p>`,'Close','ABOUT THIS PROTOTYPE');break;
   }
   $('modal-backdrop').classList.remove('hidden');
   if(['about','help','character-actions'].includes(kind)){$('modal-submit').textContent='Close';$('modal-cancel').classList.add('hidden');}else $('modal-cancel').classList.remove('hidden');
@@ -706,7 +850,7 @@ $('modal-form').addEventListener('submit',ev=>{
     }
     else if(kind==='rename'){const name=$('modal-name').value.trim();if(!name)throw new Error('Give your world a name.');commit(()=>{project.name=name;});closeModal();}
     else if(kind==='new-project'){const name=$('modal-name').value.trim();if(!name)throw new Error('Give your world a name.');resetProject(freshProject(name));closeModal();toast('Blank world created');}
-    else if(kind==='delete-character'){const id=ctx.id;commit(()=>{project.characters=project.characters.filter(c=>c.id!==id);project.relationships=project.relationships.filter(r=>r.source!==id&&r.target!==id);});closeModal();toast('Character removed');}
+    else if(kind==='delete-character'){const id=ctx.id;commit(()=>{project.characters=project.characters.filter(c=>c.id!==id);project.relationships=project.relationships.filter(r=>r.source!==id&&r.target!==id);if(project.layouts){delete project.layouts[id];for(const layout of Object.values(project.layouts))delete layout.positions[id];}});closeModal();toast('Character removed');}
     else if(kind==='delete-relationship'){const id=ctx.id;commit(()=>{project.relationships=project.relationships.filter(r=>r.id!==id);});closeModal();toast('Relationship removed');}
     else closeModal();
   }catch(e){toast(e.message,'warn');}
@@ -726,7 +870,7 @@ async function initialize(){
   focusId=project.characters[0]?.id||null;
   selection=focusId?{kind:'character',id:focusId}:null;
   camera.scale=window.innerWidth<=760?.85:1;
-  refresh();saveState(storageMode==='memory'?'Export backups to preserve work':'Saved in this browser',storageMode==='memory'?'error':'ok');
+  refresh({restoreSaved:true});saveState(storageMode==='memory'?'Export backups to preserve work':'Saved in this browser',storageMode==='memory'?'error':'ok');
   if(!raw&&storageMode!=='memory')queueSave();
   if(storageMode==='memory')toast('Browser storage unavailable. Please export backups.','warn');
   window.addEventListener('pagehide',flushSave);

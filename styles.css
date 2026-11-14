@@ -158,3 +158,30 @@
  .graph-toolbar #clear-selection{width:36px}
 }
 @media(max-width:400px){.graph-toolbar #open-roster{width:69px;font-size:10px}}
+
+/* 0.1.5: saved arrangements, without locking editing or forcing one global layout. */
+.layout-control-button{font-size:22px}
+.layout-control-button.has-saved-layout{color:#91e5e6}
+.layout-control-button.is-layout-active{background:#20546a;color:#c0fcf8}
+.layout-control-button:disabled{opacity:.45;cursor:default}
+.layout-popover{position:absolute;z-index:7;right:71px;bottom:22px;width:min(304px,calc(100% - 100px));max-height:calc(100% - 96px);overflow:auto;background:linear-gradient(160deg,#1e3449,#101d2d);border:1px solid #53768b;border-radius:14px;padding:16px;color:#e7f1f6;box-shadow:0 12px 40px #020710aa;overscroll-behavior:contain}
+.layout-popover-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:7px}
+.layout-close{background:#2b4054;color:#e5edf5;width:27px;height:27px;border:1px solid #537084;border-radius:7px;font-size:19px;line-height:1}
+.layout-popover #layout-focus-name{font-size:16px;display:block;overflow-wrap:anywhere}
+.layout-status{font-size:11px;color:#8faabe;margin:6px 0 15px}
+.layout-status.is-saved{color:#75e2db}
+.layout-toggle{display:flex;align-items:center;gap:9px;padding:10px;background:#263b4d;border:1px solid #496578;border-radius:9px;font-size:12px;font-weight:650;cursor:pointer}
+.layout-toggle input{accent-color:#37c4ce;width:17px;height:17px;margin:0}
+.layout-toggle:has(input:disabled){opacity:.55;cursor:default}
+.layout-actions{display:grid;grid-template-columns:1fr 1fr;gap:7px;margin-top:12px}
+.layout-action{background:#243b50;border:1px solid #507087;color:#e5f1f7;border-radius:8px;min-height:37px;padding:8px 5px;font-size:11px;font-weight:730}
+.layout-action.primary{background:#267d8e;border-color:#6dcad1;color:white}
+.layout-action:last-child{grid-column:1 / -1}
+.layout-action:hover:not(:disabled){filter:brightness(1.2)}
+.layout-action:disabled{opacity:.4}
+.layout-count{font-size:11px;color:#b9cbd7;margin:12px 0 5px}
+.layout-help{font-size:11px;line-height:1.55;color:#8fa6b9;margin:0}
+@media(max-width:760px){
+ .layout-popover{right:62px;bottom:13px;width:min(286px,calc(100% - 75px));max-height:calc(100% - 74px);padding:13px}
+ .workspace.mobile-details-open .layout-popover{display:none}
+}
